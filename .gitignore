@@ -1,0 +1,23 @@
+/target/
+/.tools/
+/.local/
+/dist/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+headers.txt
+cookies*.txt
+auth*.json
+credentials*.json
+*.log
+*.sqlite*
+*.dpapi
+session.pending
+__pycache__/
+.DS_Store
+Thumbs.db
+
+# Local Netlify folder
+.netlify
