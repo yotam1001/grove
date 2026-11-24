@@ -1,6 +1,9 @@
 //! Grove-owned preferences. Spotify credentials remain in Credential Manager.
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, path::PathBuf};
+use std::{
+    collections::{BTreeMap, HashSet},
+    path::PathBuf,
+};
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -22,6 +25,9 @@ pub struct Preferences {
     pub shortcuts: [String; 3],
     #[serde(deserialize_with = "crate::audio::settings::lenient")]
     pub audio: crate::audio::settings::AudioSettings,
+    /// Opt-in: reuse confirmed Tide ↔ Spotify recording choices across jams.
+    pub remember_jam_matches: bool,
+    pub jam_matches: BTreeMap<String, String>,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -38,6 +44,8 @@ impl Default for Preferences {
             close_to_tray: false,
             shortcuts: Default::default(),
             audio: Default::default(),
+            remember_jam_matches: false,
+            jam_matches: BTreeMap::new(),
         }
     }
 }
@@ -80,6 +88,9 @@ impl Preferences {
             }
         }
         prefs.audio.sanitize();
+        if !prefs.remember_jam_matches || prefs.jam_matches.len() > 200 {
+            prefs.jam_matches.clear();
+        }
         Ok(prefs)
     }
     pub fn save(&self) -> Result<(), String> {

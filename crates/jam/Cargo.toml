@@ -4,9 +4,29 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+# Self-hostable relay for Tide (protocol 1) and cross-service (protocol 2) rooms.
+# Free software: run it on your own machine behind a TLS proxy; no paid service.
+[[bin]]
+name = "grove-jam-relay"
+path = "src/bin/grove-jam-relay.rs"
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 url = "2"
 oauth2 = { version = "5", default-features = false }
 tokio = { version = "1", features = ["rt", "net", "io-util", "time", "sync", "macros"] }
+# Already in Grove's tree (rustls provider): X25519, HKDF, ChaCha20-Poly1305.
+ring = "0.17"
+base64 = "0.22"
+zeroize = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots"] }
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+# Interop reference: Tide's real relay and client at a pinned upstream commit.
+# Bump `rev` (and TIDE_JAM_REV in src/version.rs) to re-sync; see docs/CROSS_SERVICE_JAMS.md.
+tide-jam-lab = { git = "https://github.com/yotam1001/tide-music", rev = "4bc2ba3ddfa8baa68fb775cbafc0a1df6735cba8", default-features = false, features = ["relay"] }

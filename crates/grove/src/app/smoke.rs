@@ -579,28 +579,67 @@ const STAGES: &[Stage] = &[
         ui.set_playing(false);
         ui.set_page(4);
     }),
+    // Jams (#34-#39): internet setup, encrypted host view, guest voting view.
+    ("jam-setup-internet", |ui| {
+        ui.set_jam_internet(true);
+        ui.set_jam_relay("https://jam.example.test".into());
+    }),
+    ("jam-setup-narrow", |ui| size(ui, NARROW)),
     ("jam-host", |ui| {
+        size(ui, WIDE);
+        ui.set_jam_internet(false);
         ui.set_jam_connected(true);
         ui.set_jam_host(true);
+        ui.set_jam_security("Encrypted nearby room · Grove · jam protocol 3".into());
         ui.set_jam_invite("grove-jam://127.0.0.1:9876/visual-test-invitation-only".into());
+        ui.set_jam_invite_link(
+            "grove://join?invite=grove-jam%3A%2F%2F127.0.0.1%3A9876%2Fvisual-test-invitation-only"
+                .into(),
+        );
         ui.set_jam_members("You (host) · Alice · Bob · Synthetic fixtures".into());
+        ui.set_jam_member_rows(ModelRc::new(VecModel::from(vec![
+            GroveJamTrack {
+                id: "host".into(),
+                title: "Mira (you)".into(),
+                subtitle: "Host".into(),
+                removable: false,
+            },
+            GroveJamTrack {
+                id: "alice".into(),
+                title: "Alice".into(),
+                subtitle: "18 ms round trip · +40 ms from host · stand-in host".into(),
+                removable: false,
+            },
+            GroveJamTrack {
+                id: "bob".into(),
+                title: "Bob".into(),
+                subtitle: "Reconnecting…".into(),
+                removable: false,
+            },
+        ])));
         ui.set_jam_sync_status(
             "Sharing host playback · listeners follow on their own devices".into(),
         );
         ui.set_jam_tracks(ModelRc::new(VecModel::from(vec![GroveJamTrack {
             id: "fixture".into(),
             title: "Evening song · synthetic fixture".into(),
-            subtitle: "Added by Alice · Waiting".into(),
+            subtitle: "Added by Alice · From an album · Waiting".into(),
             removable: true,
         }])));
     }),
     ("jam-guest", |ui| {
         ui.set_jam_host(false);
-        ui.set_jam_sync_status("Following Evening song · Playing · Synthetic fixture".into());
+        ui.set_jam_can_skip(true);
+        ui.set_jam_skip_status("1 of 2 listeners want to skip".into());
+        ui.set_jam_sync_status("Starting together in 1.2 s".into());
     }),
     ("jam-narrow", |ui| size(ui, NARROW)),
     ("minimum", |ui| {
         ui.set_jam_connected(false);
+        ui.set_jam_member_rows(ModelRc::default());
+        ui.set_jam_skip_status("".into());
+        ui.set_jam_security("".into());
+        ui.set_jam_can_skip(false);
         ui.set_library_ready(false);
         ui.set_authenticated(false);
         ui.set_feature_tracks(ModelRc::default());
