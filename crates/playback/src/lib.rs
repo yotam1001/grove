@@ -4,11 +4,15 @@ use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+#[cfg(windows)]
+use std::process::Child;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
+#[cfg(windows)]
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 use tide_core::{PlaybackCommand, PlaybackSnapshot};
@@ -28,7 +32,7 @@ pub use cookie_updates::CookieUpdate;
 use cookie_updates::CookieUpdates;
 #[cfg(not(feature = "youtube"))]
 use youtube_off::{cookie_updates, prefetch};
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 mod recovery;
 use prefetch::{Preparation, PreparedStream};
 
@@ -69,19 +73,19 @@ pub struct PlaybackHandle {
 
 /// Start the native playback worker. mpv is located at runtime but is not
 /// launched until the first real track is loaded.
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 pub fn start() -> Result<PlaybackHandle, String> {
     start_with_cookie_file(None)
 }
 
 /// Use a caller-owned, private cookie lease for signed-in YouTube playback.
 /// The caller must keep it alive until this handle and its helpers are dropped.
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 pub fn start_with_cookie_file(cookies: Option<PathBuf>) -> Result<PlaybackHandle, String> {
     start_with_account(cookies, 0)
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 pub fn start_with_account(
     cookies: Option<PathBuf>,
     account_index: u32,
@@ -165,16 +169,16 @@ pub fn start_with_account(
     })
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, unix)))]
 pub fn start() -> Result<PlaybackHandle, String> {
-    Err("The native mpv named-pipe backend is currently supported on Windows only.".into())
+    Err("The native mpv IPC backend is supported on Windows, Linux and macOS only.".into())
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, unix)))]
 pub fn start_with_cookie_file(_: Option<PathBuf>) -> Result<PlaybackHandle, String> {
     start()
 }
-#[cfg(not(windows))]
+#[cfg(not(any(windows, unix)))]
 pub fn start_with_account(_: Option<PathBuf>, _: u32) -> Result<PlaybackHandle, String> {
     start()
 }
@@ -441,7 +445,7 @@ struct PlaybackIntent {
     seek_revision: u64,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 struct WorkerControls {
     desired_generation: Arc<AtomicU64>,
     supersede_epoch: Arc<AtomicU64>,
@@ -463,9 +467,9 @@ struct RuntimePaths {
 
 impl RuntimePaths {
     fn discover() -> Result<Self, String> {
-        let mpv = find_runtime_binary("mpv.exe")
+        let mpv = find_runtime_binary(runtime_binary_name("mpv"))
             .ok_or_else(|| {
-                "mpv.exe was not found. Place it in the app's tools directory, .tools/runtime, or add it to PATH.".to_owned()
+                format!("{} was not found. Place it in the app's tools directory, .tools/runtime, or add it to PATH.", runtime_binary_name("mpv"))
             })?;
         Ok(Self {
             cookies: None,
@@ -477,7 +481,7 @@ impl RuntimePaths {
 
     fn discover_yt_dlp() -> Option<PathBuf> {
         if cfg!(feature = "youtube") {
-            find_runtime_binary("yt-dlp.exe")
+            find_runtime_binary(runtime_binary_name("yt-dlp"))
         } else {
             None
         }
@@ -485,41 +489,70 @@ impl RuntimePaths {
 }
 
 fn find_runtime_binary(name: &str) -> Option<PathBuf> {
+    let directories = runtime_directories(
+        env::var_os("TIDE_RUNTIME_DIR").map(PathBuf::from),
+        env::current_exe().ok(),
+        env::current_dir().ok(),
+    );
+    let path = env::var_os("PATH").unwrap_or_default();
+    find_binary_in(name, directories.into_iter().chain(env::split_paths(&path)))
+}
+
+fn find_binary_in(name: &str, directories: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
+    directories
+        .into_iter()
+        .map(|dir| dir.join(name))
+        .find(|path| path.is_file())
+        .map(|path| fs::canonicalize(&path).unwrap_or(path))
+}
+
+/// Search order: explicit override, bundled locations beside the executable
+/// (Windows `tools`, macOS bundle `../Resources/bin`), the executable's own
+/// directory, `.tools/runtime` ancestors, then on unix the Homebrew prefixes.
+/// `PATH` is searched last by `find_runtime_binary`.
+fn runtime_directories(
+    runtime_dir: Option<PathBuf>,
+    executable: Option<PathBuf>,
+    current_dir: Option<PathBuf>,
+) -> Vec<PathBuf> {
     let mut directories = Vec::new();
-
-    if let Some(runtime_dir) = env::var_os("TIDE_RUNTIME_DIR") {
-        directories.push(PathBuf::from(runtime_dir));
+    if let Some(dir) = runtime_dir {
+        directories.push(dir);
     }
-
-    if let Ok(executable) = env::current_exe() {
+    if let Some(executable) = executable {
         if let Some(exe_dir) = executable.parent() {
-            directories.push(exe_dir.join("tools"));
-            directories.push(exe_dir.join(".tools").join("runtime"));
+            #[cfg(windows)]
+            {
+                directories.push(exe_dir.join("tools"));
+                directories.push(exe_dir.join(".tools").join("runtime"));
+            }
+            #[cfg(unix)]
+            directories.push(exe_dir.join("../Resources/bin"));
             directories.push(exe_dir.to_path_buf());
             add_runtime_ancestors(exe_dir, &mut directories);
         }
     }
-
-    if let Ok(current_dir) = env::current_dir() {
-        add_runtime_ancestors(&current_dir, &mut directories);
+    if let Some(dir) = current_dir {
+        add_runtime_ancestors(&dir, &mut directories);
     }
+    #[cfg(unix)]
+    directories.extend([
+        PathBuf::from("/opt/homebrew/bin"),
+        PathBuf::from("/usr/local/bin"),
+    ]);
+    directories
+}
 
-    for directory in directories {
-        let candidate = directory.join(name);
-        if candidate.is_file() {
-            return fs::canonicalize(&candidate).ok().or(Some(candidate));
+fn runtime_binary_name(name: &str) -> &str {
+    if cfg!(windows) {
+        match name {
+            "mpv" => "mpv.exe",
+            "yt-dlp" => "yt-dlp.exe",
+            _ => name,
         }
+    } else {
+        name
     }
-
-    if let Some(path) = env::var_os("PATH") {
-        for directory in env::split_paths(&path) {
-            let candidate = directory.join(name);
-            if candidate.is_file() {
-                return fs::canonicalize(&candidate).ok().or(Some(candidate));
-            }
-        }
-    }
-    None
 }
 
 fn add_runtime_ancestors(start: &Path, directories: &mut Vec<PathBuf>) {
@@ -572,7 +605,7 @@ fn validate_source(source: &str) -> Result<ValidatedSource, String> {
         });
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, unix))]
     if source.starts_with("\\\\") || source.starts_with("//") {
         return Err("Network shares are not accepted as local playback files.".into());
     }
@@ -602,9 +635,19 @@ fn is_youtube_host(host: &str) -> bool {
 }
 
 #[cfg(windows)]
-type PipeWriter = WriteHalf<tokio::net::windows::named_pipe::NamedPipeClient>;
+type IpcStream = tokio::net::windows::named_pipe::NamedPipeClient;
+#[cfg(unix)]
+type IpcStream = tokio::net::UnixStream;
+#[cfg(any(windows, unix))]
+type PipeWriter = WriteHalf<IpcStream>;
+#[cfg(unix)]
+mod unix;
+#[cfg(unix)]
+pub use unix::OwnedProcess;
+#[cfg(unix)]
+use unix::OwnedProcess as OwnedChild;
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 struct RunningPlayer {
     // Rust drops fields in declaration order: terminate/reap the owned process
     // and close its descendant job before deleting its private cookie snapshot.
@@ -617,7 +660,7 @@ struct RunningPlayer {
     session_id: u64,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 struct PlayerLaunch {
     session_id: u64,
     epoch: u64,
@@ -757,7 +800,7 @@ struct PendingLoad {
     prepared: Option<PreparedStream>,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 #[derive(Default)]
 struct PlayerState {
     active_generation: Option<u64>,
@@ -769,18 +812,18 @@ struct PlayerState {
     prepared_fallback: Option<PendingLoad>,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 enum RequestPurpose {
     Load { generation: u64, epoch: u64 },
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 enum IpcEvent {
     Line { session_id: u64, line: String },
     Closed { session_id: u64 },
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 async fn run_worker(
     runtimes: RuntimePaths,
     mut command_rx: mpsc::Receiver<WorkerCommand>,
@@ -1040,7 +1083,7 @@ async fn run_worker(
     reset_snapshot(&mut snapshot_write(&snapshot));
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 async fn launch_player(
     runtimes: &RuntimePaths,
     volume: f64,
@@ -1049,8 +1092,8 @@ async fn launch_player(
     desired_epoch: &AtomicU64,
     launch: PlayerLaunch,
 ) -> Result<Option<RunningPlayer>, String> {
+    #[cfg(windows)]
     use std::os::windows::process::CommandExt;
-    use tokio::net::windows::named_pipe::ClientOptions;
     let PlayerLaunch {
         session_id,
         epoch,
@@ -1065,7 +1108,13 @@ async fn launch_player(
         .map(|path| prefetch::CookieCopy::create(path))
         .transpose()
         .map_err(|_| "Could not prepare signed-in playback")?;
+    #[cfg(windows)]
     let pipe_path = unique_pipe_path();
+    #[cfg(unix)]
+    let socket = unix::SocketPath::new()
+        .map_err(|e| format!("Could not create private IPC directory: {e}"))?;
+    #[cfg(unix)]
+    let pipe_path = socket.path().to_string_lossy().into_owned();
     let mut command = Command::new(&runtimes.mpv);
     command
         .arg("--no-config")
@@ -1074,7 +1123,15 @@ async fn launch_player(
         .arg("--input-terminal=no")
         // Tide owns the Windows media session; its helper must not process the
         // same hardware key independently and cause double pause/skip actions.
-        .arg("--input-media-keys=no")
+        .arg("--input-media-keys=no");
+    // mpv 0.39+ also registers its own system media session, separate
+    // from --input-media-keys. The OS then routes earbud buttons, media keys
+    // and touchpad swipes to mpv, which cannot skip, whenever the app is not
+    // in front. The app's own session must be the only one. On macOS the same
+    // applies to Now Playing.
+    #[cfg(any(windows, target_os = "macos"))]
+    command.arg("--media-controls=no");
+    command
         .arg("--force-window=no")
         .arg("--vid=no")
         .arg("--vo=null")
@@ -1097,8 +1154,9 @@ async fn launch_player(
         .arg(format!("--input-ipc-server={pipe_path}"))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .creation_flags(0x08000000);
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
     if let Some(cookies) = &cookie_copy {
         let path = cookies.path().to_string_lossy();
         command.arg(format!(
@@ -1119,28 +1177,48 @@ async fn launch_player(
         ));
     }
 
-    if runtimes.yt_dlp.is_some() {
+    if let Some(path) = &runtimes.yt_dlp {
+        #[cfg(windows)]
         command.arg("--script-opts=ytdl_hook-ytdl_path=yt-dlp.exe");
+        // Unix binaries have no PATHEXT lookup; pass the discovered path with
+        // mpv's %length% quoting so separators and commas survive intact.
+        #[cfg(unix)]
+        {
+            let path = path.to_string_lossy();
+            command.arg(format!(
+                "--script-opts=ytdl_hook-ytdl_path=%{}%{}",
+                path.len(),
+                path
+            ));
+        }
+        #[cfg(windows)]
+        let _ = path;
     }
     command.env("PATH", child_path(runtimes)?);
 
-    let mut child = command
-        .spawn()
-        .map_err(|error| format!("Could not start mpv.exe: {error}"))?;
-    // mpv is idle here and cannot launch a source extractor until loadfile.
-    // Refuse playback if process-tree containment could not be installed.
-    let job = match OwnedJob::attach(&child) {
-        Ok(job) => job,
-        Err(error) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!("Could not contain the mpv process tree: {error}"));
+    #[cfg(windows)]
+    let mut child = {
+        let mut child = command
+            .spawn()
+            .map_err(|error| format!("Could not start mpv.exe: {error}"))?;
+        // mpv is idle here and cannot launch a source extractor until loadfile.
+        // Refuse playback if process-tree containment could not be installed.
+        let job = match OwnedJob::attach(&child) {
+            Ok(job) => job,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("Could not contain the mpv process tree: {error}"));
+            }
+        };
+        OwnedChild {
+            process: child,
+            _job: job,
         }
     };
-    let mut child = OwnedChild {
-        process: child,
-        _job: job,
-    };
+    #[cfg(unix)]
+    let mut child = unix::OwnedProcess::spawn_mpv(&mut command, socket)
+        .map_err(|e| format!("Could not start mpv: {e}"))?;
     let started = Instant::now();
 
     let client = loop {
@@ -1152,10 +1230,10 @@ async fn launch_player(
             .map_err(|error| format!("Could not check the mpv process: {error}"))?
         {
             return Err(format!(
-                "mpv.exe exited before its IPC pipe was ready (status {status}). Check that this is a recent mpv build."
+                "mpv exited before its IPC transport was ready (status {status}). Check that this is a recent mpv build."
             ));
         }
-        match ClientOptions::new().open(&pipe_path) {
+        match connect_ipc(&pipe_path).await {
             Ok(client) => break client,
             Err(_) if started.elapsed() < IPC_CONNECT_TIMEOUT => {
                 tokio::select! {
@@ -1169,7 +1247,7 @@ async fn launch_player(
             }
             Err(error) => {
                 return Err(format!(
-                    "mpv.exe started, but its named-pipe IPC did not become ready within {} seconds: {error}",
+                    "mpv started, but its IPC transport did not become ready within {} seconds: {error}",
                     IPC_CONNECT_TIMEOUT.as_secs()
                 ));
             }
@@ -1227,7 +1305,7 @@ async fn launch_player(
     Ok(Some(running))
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 async fn read_ipc_line(reader: &mut (impl AsyncBufRead + Unpin)) -> io::Result<Option<String>> {
     let mut line = Vec::new();
     loop {
@@ -1259,6 +1337,18 @@ async fn read_ipc_line(reader: &mut (impl AsyncBufRead + Unpin)) -> io::Result<O
     }
 }
 
+#[cfg(any(windows, unix))]
+async fn connect_ipc(path: &str) -> io::Result<IpcStream> {
+    #[cfg(windows)]
+    {
+        tokio::net::windows::named_pipe::ClientOptions::new().open(path)
+    }
+    #[cfg(unix)]
+    {
+        tokio::net::UnixStream::connect(path).await
+    }
+}
+
 #[cfg(windows)]
 fn unique_pipe_path() -> String {
     let counter = PIPE_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -1272,7 +1362,7 @@ fn unique_pipe_path() -> String {
     )
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 fn child_path(runtimes: &RuntimePaths) -> Result<OsString, String> {
     let mut paths = Vec::new();
     if let Some(directory) = runtimes.mpv.parent() {
@@ -1290,7 +1380,7 @@ fn child_path(runtimes: &RuntimePaths) -> Result<OsString, String> {
         .map_err(|error| format!("Could not prepare the mpv runtime PATH: {error}"))
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 async fn observe_properties(player: &mut RunningPlayer) -> io::Result<()> {
     for (id, property) in [
         (1, "time-pos"),
@@ -1309,7 +1399,7 @@ async fn observe_properties(player: &mut RunningPlayer) -> io::Result<()> {
     Ok(())
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 async fn begin_load_at(
     player: &mut RunningPlayer,
     state: &mut PlayerState,
@@ -1357,13 +1447,13 @@ async fn begin_load_at(
     Ok(())
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 fn next_request_id(state: &mut PlayerState) -> i64 {
     state.next_request_id = state.next_request_id.wrapping_add(1).max(1);
     state.next_request_id
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 async fn send_ipc_command(
     writer: &mut PipeWriter,
     command: Value,
@@ -1384,7 +1474,7 @@ async fn send_ipc_command(
     .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "mpv IPC write timed out"))?
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 fn apply_ipc_message(
     state: &mut PlayerState,
     snapshot: &mut PlaybackSnapshot,
@@ -1474,7 +1564,7 @@ fn apply_ipc_message(
 
 /// Retry a rejected prepared URL once via the normal extractor. Compare both
 /// the request/entry and current epoch so superseded tracks never restart.
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 fn take_prepared_fallback(
     state: &mut PlayerState,
     message: &Value,
@@ -1502,7 +1592,7 @@ fn take_prepared_fallback(
         .flatten()
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 fn active_is_current(state: &PlayerState, desired_generation: u64, desired_epoch: u64) -> bool {
     state.awaiting_start.is_none()
         && state.active_entry_id.is_some()
@@ -1549,7 +1639,7 @@ fn finite_non_negative(value: &Value) -> Option<f64> {
         .filter(|number| number.is_finite() && *number >= 0.0)
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 async fn terminate_player(player: &mut RunningPlayer) {
     let _ = tokio::time::timeout(
         Duration::from_millis(200),
@@ -1604,7 +1694,7 @@ mod tests {
 
     // Opt-in: own muted local silence and only the mpv owned by this test.
     // No process enumeration, account session, network, or persisted queue.
-    #[cfg(windows)]
+    #[cfg(any(windows, unix))]
     #[test]
     #[ignore = "opt-in muted native recovery fault probe requiring mpv"]
     fn native_recovery_fault_probe() {
@@ -1830,7 +1920,7 @@ mod tests {
         fs::remove_file(path).unwrap();
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, unix))]
     #[test]
     fn prepared_startup_failure_retries_once_and_never_restarts_stale_track() {
         let mut state = PlayerState {
@@ -1849,7 +1939,7 @@ mod tests {
         assert!(take_prepared_fallback(&mut state, &message, 3, 9).is_none());
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, unix))]
     #[tokio::test(flavor = "current_thread")]
     async fn ipc_reader_enforces_limit_before_allocating_an_unbounded_line() {
         let bytes = vec![b'x'; MAX_IPC_LINE_BYTES + 1];
@@ -2133,7 +2223,7 @@ mod tests {
         assert!(snapshot.title.is_none());
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, unix))]
     #[test]
     fn ignores_end_file_and_property_events_from_superseded_entries() {
         let mut state = PlayerState {
@@ -2174,7 +2264,7 @@ mod tests {
         assert!(snapshot.title.is_none());
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, unix))]
     #[test]
     fn stop_epoch_suppresses_late_events_even_when_generation_is_unchanged() {
         let mut state = PlayerState {
@@ -2211,7 +2301,7 @@ mod tests {
         assert_eq!(snapshot.position, 12.0);
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, unix))]
     #[test]
     fn maps_file_events_to_the_waiting_generation_and_discards_stale_completion() {
         let mut state = PlayerState {

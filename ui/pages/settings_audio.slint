@@ -141,7 +141,7 @@ export component SettingsAudio inherits VerticalLayout {
 
     SettingsCard {
         title: "Output";
-        subtitle: "System default follows the output you choose in Windows.";
+        subtitle: "System default follows the output you choose in your sound settings.";
         VerticalLayout {
             padding-left: 12px; padding-right: 12px; padding-bottom: 8px; spacing: 2px;
             for device[i] in GroveAudio.devices : DeviceRow { device: device; clicked => { GroveAudio.choose("device", i); } }

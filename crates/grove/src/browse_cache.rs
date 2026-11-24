@@ -48,11 +48,25 @@ fn now() -> u64 {
         .unwrap_or_default()
 }
 
+fn data_file(name: &str) -> Option<PathBuf> {
+    crate::preferences::data_dir().map(|dir| dir.join(name))
+}
+
 fn path() -> Option<PathBuf> {
-    std::env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .map(|root| root.join("GroveMusic").join("browse-cache.json"))
+    data_file("browse-cache.json")
+}
+
+/// Writes through a temporary file so a crash never leaves half a cache.
+fn write_atomic(path: &std::path::Path, bytes: &[u8]) {
+    let Some(parent) = path.parent() else { return };
+    if std::fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+    let temporary = parent.join(format!("{stem}-{}.tmp", crate::jam::id()));
+    if std::fs::write(&temporary, bytes).is_ok() && std::fs::rename(&temporary, path).is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
 }
 
 impl BrowseCache {
@@ -165,21 +179,148 @@ impl BrowseCache {
             return;
         }
         let Some(path) = path() else { return };
-        let Some(parent) = path.parent() else { return };
-        if std::fs::create_dir_all(parent).is_err() {
-            return;
-        }
         let Ok(bytes) = serde_json::to_vec(self) else {
             return;
         };
-        if bytes.len() as u64 > MAX_BYTES {
+        if bytes.len() as u64 <= MAX_BYTES {
+            write_atomic(&path, &bytes);
+        }
+    }
+}
+
+/// A profile younger than this stands in for `/me` at startup.
+pub const PROFILE_FRESH_SECONDS: u64 = 24 * 60 * 60;
+
+/// What the startup needs from the last launch: the profile (`/me`) and the first
+/// playlists page. The Spotify worker owns it, so it is a separate file from the
+/// page cache the UI owns. It holds no token or credential; sign-out deletes it.
+/// Review modes never start the worker's restore, so they never read it.
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LibraryCache {
+    account: String,
+    profile: Option<Entry>,
+    playlists: Option<Entry>,
+    #[serde(skip)]
+    file: Option<PathBuf>,
+}
+
+impl LibraryCache {
+    pub fn memory() -> Self {
+        Self::default()
+    }
+
+    /// Loads the startup cache for `account`; another account's data is discarded.
+    pub fn open(account: &str) -> Self {
+        Self::open_at(data_file("library-cache.json"), account)
+    }
+
+    fn open_at(file: Option<PathBuf>, account: &str) -> Self {
+        let mut cache = file
+            .as_ref()
+            .filter(|p| std::fs::metadata(p).is_ok_and(|m| m.len() <= MAX_BYTES))
+            .and_then(|p| std::fs::read(p).ok())
+            .and_then(|bytes| serde_json::from_slice::<Self>(&bytes).ok())
+            .unwrap_or_default();
+        cache.file = file;
+        cache.bind(account);
+        cache
+    }
+
+    fn bind(&mut self, account: &str) {
+        if self.account != account {
+            self.profile = None;
+            self.playlists = None;
+            self.account = account.to_owned();
+        }
+        let oldest = now().saturating_sub(KEEP_SECONDS);
+        for slot in [&mut self.profile, &mut self.playlists] {
+            if slot.as_ref().is_some_and(|e| e.saved < oldest) {
+                *slot = None;
+            }
+        }
+    }
+
+    /// The cached `/me` reply, only when it belongs to this cache's account.
+    pub fn profile(&self) -> Option<Hit> {
+        self.profile_at(now())
+    }
+
+    fn profile_at(&self, at: u64) -> Option<Hit> {
+        let entry = self.profile.as_ref()?;
+        if self.account.is_empty() || entry.data["id"].as_str() != Some(self.account.as_str()) {
+            return None;
+        }
+        hit(entry, at, PROFILE_FRESH_SECONDS)
+    }
+
+    pub fn playlists(&self) -> Option<Hit> {
+        if self.account.is_empty() {
+            return None;
+        }
+        hit(self.playlists.as_ref()?, now(), FRESH_SECONDS)
+    }
+
+    pub fn put_profile(&mut self, profile: &Value) {
+        // Only what Grove shows or decides with; nothing else from `/me`.
+        let kept = serde_json::json!({
+            "id": profile["id"],
+            "display_name": profile["display_name"],
+            "product": profile["product"],
+        });
+        if kept["id"].as_str() != Some(self.account.as_str()) {
             return;
         }
-        let temporary = parent.join(format!("browse-cache-{}.tmp", crate::jam::id()));
-        if std::fs::write(&temporary, bytes).is_ok() && std::fs::rename(&temporary, &path).is_err()
-        {
-            let _ = std::fs::remove_file(&temporary);
+        self.profile = Some(Entry {
+            saved: now(),
+            data: kept,
+        });
+        self.save();
+    }
+
+    pub fn put_playlists(&mut self, page: &Value) {
+        if self.account.is_empty() || page["account"].as_str() != Some(self.account.as_str()) {
+            return;
         }
+        let mut page = page.clone();
+        if let Some(fields) = page.as_object_mut() {
+            for transient in ["cached", "stale", "cooldown", "error", "load_failed"] {
+                fields.remove(transient);
+            }
+        }
+        self.playlists = Some(Entry {
+            saved: now(),
+            data: page,
+        });
+        self.save();
+    }
+
+    /// Sign-out: forget the startup library on disk, whether or not it was opened.
+    pub fn forget() {
+        if let Some(path) = data_file("library-cache.json") {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    fn save(&self) {
+        let Some(path) = &self.file else { return };
+        let Ok(bytes) = serde_json::to_vec(self) else {
+            return;
+        };
+        if bytes.len() as u64 <= MAX_BYTES {
+            write_atomic(path, &bytes);
+        }
+    }
+}
+
+fn hit(entry: &Entry, at: u64, fresh: u64) -> Option<Hit> {
+    let age = at.saturating_sub(entry.saved);
+    if age < fresh {
+        Some(Hit::Fresh(entry.data.clone()))
+    } else if age < KEEP_SECONDS {
+        Some(Hit::Stale(entry.data.clone()))
+    } else {
+        None
     }
 }
 
@@ -232,5 +373,43 @@ mod tests {
         assert!(cache.recent_searches.is_empty() && cache.account().is_empty());
         let json = serde_json::to_string(&cache).unwrap();
         assert!(!json.contains("token"));
+    }
+
+    #[test]
+    fn the_startup_library_survives_a_relaunch_for_its_account_only() {
+        let dir = std::env::temp_dir().join(format!("grove-library-cache-{}", crate::jam::id()));
+        let file = dir.join("library-cache.json");
+        let mut cache = LibraryCache::open_at(Some(file.clone()), "ana");
+        assert!(cache.profile().is_none() && cache.playlists().is_none());
+        cache.put_profile(&json!({"id":"ana","display_name":"Ana","product":"premium","email":"a@example.test","access_token":"x"}));
+        cache.put_profile(&json!({"id":"bob","display_name":"Bob"}));
+        cache.put_playlists(&json!({"account":"ana","items":[{"name":"Mix"}],"cooldown":{"seconds":5},"cached":true}));
+        cache.put_playlists(&json!({"account":"bob","items":[]}));
+
+        let reopened = LibraryCache::open_at(Some(file.clone()), "ana");
+        let Some(Hit::Fresh(profile)) = reopened.profile() else {
+            panic!("the profile was not kept");
+        };
+        assert_eq!(
+            profile,
+            json!({"id":"ana","display_name":"Ana","product":"premium"})
+        );
+        let Some(Hit::Fresh(page)) = reopened.playlists() else {
+            panic!("the playlists were not kept");
+        };
+        assert_eq!(page, json!({"account":"ana","items":[{"name":"Mix"}]}));
+        let saved = reopened.profile.as_ref().unwrap().saved;
+        assert!(matches!(
+            reopened.profile_at(saved + PROFILE_FRESH_SECONDS),
+            Some(Hit::Stale(_))
+        ));
+        assert!(reopened.profile_at(saved + KEEP_SECONDS).is_none());
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(!text.contains("token") && !text.contains("email"));
+
+        let other = LibraryCache::open_at(Some(file.clone()), "bob");
+        assert!(other.profile().is_none() && other.playlists().is_none());
+        assert_eq!(other.account, "bob");
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

@@ -3,19 +3,19 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 use super::cookie_updates::{CookieUpdate, CookieUpdates, MAX_COOKIE_BYTES};
 use serde_json::{json, Value};
 use tokio::sync::watch;
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 use zeroize::Zeroizing;
 
 const FRESH_FOR: Duration = Duration::from_secs(10 * 60);
 const EXPIRY_MARGIN: Duration = Duration::from_secs(30);
 const RETRY_DELAY: Duration = Duration::from_secs(20);
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 const RESOLVE_TIMEOUT: Duration = Duration::from_secs(45);
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 const MAX_OUTPUT_BYTES: u64 = 2 * 1024 * 1024;
 
 #[derive(Clone, Default)]
@@ -140,7 +140,7 @@ impl Preparation {
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 pub(super) async fn run(
     runtimes: super::RuntimePaths,
     preparation: Arc<Preparation>,
@@ -164,7 +164,7 @@ pub(super) async fn run(
     .await;
 }
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, unix, test))]
 async fn run_with_resolver<F, Fut>(
     preparation: Arc<Preparation>,
     mut requests: watch::Receiver<Request>,
@@ -190,7 +190,7 @@ async fn run_with_resolver<F, Fut>(
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 fn resolve(
     runtimes: &super::RuntimePaths,
     request: &Request,
@@ -292,13 +292,13 @@ fn resolve(
     parse_stream(&bytes)
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 pub(super) struct CookieCopy {
     path: std::path::PathBuf,
     baseline: Zeroizing<Vec<u8>>,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 impl CookieCopy {
     pub(super) fn create(source: &std::path::Path) -> std::io::Result<Self> {
         use std::io::Read;
@@ -310,10 +310,15 @@ impl CookieCopy {
             .unwrap_or_default()
             .as_nanos() as u64;
         let path = parent.join(format!("playback-{}-{counter}.txt", std::process::id()));
-        let mut destination = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)?;
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        // Owner-only on unix; Windows inherits the lease directory's ACL.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut destination = options.open(&path)?;
         let mut copy = Self {
             path,
             baseline: Zeroizing::new(Vec::new()),
@@ -366,7 +371,7 @@ impl CookieCopy {
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 impl Drop for CookieCopy {
     fn drop(&mut self) {
         // Windows may need a moment to release descendants' handles after the
@@ -711,7 +716,7 @@ mod tests {
         assert!(parse_stream(&serde_json::to_vec(&invalid_account).unwrap()).is_none());
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, unix))]
     #[test]
     fn exclusive_cookie_copy_preserves_original_and_removes_itself() {
         let directory = std::env::temp_dir().join(format!(
@@ -735,7 +740,7 @@ mod tests {
         std::fs::remove_dir_all(directory).unwrap();
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, unix))]
     #[test]
     fn extractor_snapshot_cannot_overwrite_refreshed_canonical_lease() {
         let directory = std::env::temp_dir().join(format!(
@@ -777,7 +782,7 @@ mod tests {
         std::fs::remove_dir_all(directory).unwrap();
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, unix))]
     #[test]
     fn completed_cookie_rotation_survives_superseded_stream_and_is_not_published_twice() {
         let directory = std::env::temp_dir().join(format!(

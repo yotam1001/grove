@@ -5,6 +5,12 @@
 > cargo feature, which Grove leaves off. Without it YouTube addresses are
 > rejected, mpv runs with `--ytdl=no` and `src/youtube_off.rs` supplies inert
 > stand-ins, so only local files and plain http/https sources play.
+>
+> On Linux and macOS the same worker talks to mpv over a Unix socket in a
+> private 0700 directory (`src/unix.rs`). mpv runs in its own process group
+> and holds an inherited lifetime connection, so it exits if the app dies.
+> Unix discovery also checks `../Resources/bin` beside the executable, then
+> `/opt/homebrew/bin` and `/usr/local/bin`, before `PATH`; the binary is `mpv`.
 
 `tide-playback` implements the `tide-core` playback contract with a Windows
 mpv sidecar controlled through JSON IPC over a named pipe. The worker is

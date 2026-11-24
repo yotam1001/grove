@@ -1,6 +1,7 @@
 //! One system media handler, dispatched through the same guarded UI callbacks.
 //! `MediaControls` is the platform seam: Windows uses SMTC (plus the taskbar
-//! and opt-in tray from tide-windows); other platforms have no backend yet.
+//! and opt-in tray from tide-windows); macOS uses Now Playing and Linux MPRIS,
+//! both through souvlaki.
 use crate::{state::State, GroveWindow};
 use slint::ComponentHandle;
 use std::{cell::RefCell, rc::Rc, time::Duration};
@@ -21,6 +22,10 @@ pub fn install(ui: &GroveWindow, state: Rc<RefCell<State>>, offline: bool) -> sl
                 4 => ui.invoke_transport("skip_prev".into()),
                 6 => ui.invoke_seek(value * 1000.0),
                 7 if !ui.get_mini() => ui.invoke_switch_mini(),
+                // MPRIS Raise: bring the window forward.
+                8 => {
+                    let _ = ui.show();
+                }
                 _ => {}
             }
         }
@@ -51,7 +56,7 @@ pub fn install(ui: &GroveWindow, state: Rc<RefCell<State>>, offline: bool) -> sl
                 match start(&ui) {
                     Ok(session) => media = Some(session),
                     Err(e) if attempts == 20 => {
-                        ui.set_message(format!("Windows media controls unavailable: {e}").into())
+                        ui.set_message(format!("System media controls unavailable: {e}").into())
                     }
                     _ => {}
                 }
@@ -147,7 +152,104 @@ fn start(ui: &GroveWindow) -> Result<Box<dyn MediaControls>, String> {
     Ok(Box::new(session))
 }
 
-#[cfg(not(windows))]
+/// macOS Now Playing and Linux MPRIS. Grove has no tray there, so the
+/// close-to-tray setting does nothing.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+struct SystemMedia {
+    controls: souvlaki::MediaControls,
+    shown: (String, String, u64),
+    playing: Option<bool>,
+    /// Where the last reported position puts playback now, to notice seeks.
+    reported: Option<(f64, std::time::Instant)>,
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+impl MediaControls for SystemMedia {
+    fn update(&mut self, title: &str, artist: &str, playing: bool, position: f64, duration: f64) {
+        use souvlaki::{MediaMetadata, MediaPlayback, MediaPosition};
+        let shown = (
+            title.to_owned(),
+            artist.to_owned(),
+            duration.max(0.0) as u64,
+        );
+        if shown != self.shown {
+            let _ = self.controls.set_metadata(MediaMetadata {
+                title: Some(title),
+                artist: Some(artist),
+                album: Some("Grove"),
+                duration: (duration > 0.0).then(|| Duration::from_secs_f64(duration)),
+                ..Default::default()
+            });
+            self.shown = shown;
+            self.playing = None;
+        }
+        // The timer runs four times a second. Report a change of state, or a
+        // position that drifted from what the system extrapolates (a seek).
+        let expected = self.reported.map(|(at, since)| {
+            at + if self.playing == Some(true) {
+                since.elapsed().as_secs_f64()
+            } else {
+                0.0
+            }
+        });
+        if self.playing != Some(playing) || expected.is_none_or(|e| (e - position).abs() > 2.0) {
+            let progress = Some(MediaPosition(Duration::from_secs_f64(position.max(0.0))));
+            let _ = self.controls.set_playback(if title.is_empty() {
+                MediaPlayback::Stopped
+            } else if playing {
+                MediaPlayback::Playing { progress }
+            } else {
+                MediaPlayback::Paused { progress }
+            });
+            self.playing = Some(playing);
+            self.reported = Some((position, std::time::Instant::now()));
+        }
+    }
+    fn set_close_to_tray(&mut self, _enabled: bool) {}
+}
+
+/// Media-command codes shared with the Slint `media-command` callback.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn system_code(event: souvlaki::MediaControlEvent) -> Option<(i32, f32)> {
+    use souvlaki::MediaControlEvent::*;
+    Some(match event {
+        Play => (0, 0.0),
+        Pause => (1, 0.0),
+        Toggle => (2, 0.0),
+        Next => (3, 0.0),
+        Previous => (4, 0.0),
+        Stop => (5, 0.0),
+        SetPosition(position) => (6, position.0.as_secs_f32()),
+        Raise => (8, 0.0),
+        _ => return None,
+    })
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn start(ui: &GroveWindow) -> Result<Box<dyn MediaControls>, String> {
+    let mut controls = souvlaki::MediaControls::new(souvlaki::PlatformConfig {
+        dbus_name: "grove_music",
+        display_name: "Grove",
+        hwnd: None,
+    })
+    .map_err(|e| format!("{e:?}"))?;
+    let weak = ui.as_weak();
+    controls
+        .attach(move |event| {
+            if let Some((code, value)) = system_code(event) {
+                let _ = weak.upgrade_in_event_loop(move |ui| ui.invoke_media_command(code, value));
+            }
+        })
+        .map_err(|e| format!("{e:?}"))?;
+    Ok(Box::new(SystemMedia {
+        controls,
+        shown: Default::default(),
+        playing: None,
+        reported: None,
+    }))
+}
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 fn start(_ui: &GroveWindow) -> Result<Box<dyn MediaControls>, String> {
     Err("System media controls are not available on this platform yet.".into())
 }

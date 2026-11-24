@@ -18,7 +18,7 @@ def generate(metadata):
             if any(kind["kind"] != "dev" for kind in dependency["dep_kinds"]):
                 pending.append(dependency["pkg"])
     lines = ["# Grove dependency notices", "",
-             "Generated from Cargo metadata for the Windows build graph, including build tools.",
+             "Generated from Cargo metadata for this platform's build graph, including build tools.",
              "Some listed packages are build-only and are not included in the executable.",
              "License alternatives below reproduce upstream metadata; Slint is used under",
              "its Royalty-free Desktop, Mobile, and Web Applications License.",

@@ -1,8 +1,11 @@
 # Tide → Grove feature audit
 
 Reviewed 2026-10-22 against Tide 0.3.0, `origin/main` at `567cb97`, especially
-`docs/USING_TIDE.md` and the native application. The older Tide checkout on this
-branch is not the parity reference. **Full parity is not complete.**
+`docs/USING_TIDE.md` and the native application. Updated 2026-11-24 for the
+merged module split (#42), UI shell (#47), audio engine (#43), browse pages (#44),
+Windows integration (#45) and jams (#46), plus the startup request budgets and
+the Linux/macOS preview (#48). **Every row below is implemented offline; none of
+it has been checked against a live Spotify account yet.**
 
 “Implemented” means a reachable native control with connected application logic.
 Offline callbacks do not establish that a Spotify grant, endpoint, audio device
@@ -16,6 +19,7 @@ or second Premium account works in production.
 | My Supermix | Provider alternative | Discovery mix, pinned in Library and on Home: top songs, top artists' newest releases and liked songs by those artists. Spotify's recommendation endpoints are closed to new apps. |
 | Playlists / Liked Songs | Implemented | Library tabs (Playlists, Albums, Artists, History) with a filter. Collection pages with a header (artwork, owner, count, Play/Shuffle) and a track table. Spotify only lists items of playlists you own or collaborate on; others show a note and play as a Spotify context. |
 | Artist browsing | Implemented | Artist pages: hero header, Play/Shuffle, Follow/Following through `/me/library`, popular songs (top tracks where allowed, otherwise from the newest releases), album and single shelves. Song menus offer a choice among credited artists. |
+| Rate limits (Grove-specific) | Implemented; live check pending | Requests are grouped into budgets (search, library, playlists, artists, profile, …). A 429 cools down only its budget, honours `Retry-After`, shows the time left with Retry and words `QUOTA_EXCEEDED` differently. Identical reads collapse and track lookups are batched where Spotify still allows it. The startup profile and first playlists page are cached per account: fresh, they need no request; stale or throttled, the last launch's copy shows at once. Playback never waits on a Web API cooldown. |
 | Artwork | Implemented | Public Spotify CDN only; no OAuth on downloads; bounded worker, timeout, size/decode limits, 160-entry cache of 192 px covers. Pages request a bounded number of covers and models update in place, so covers do not flicker or refetch in a loop. |
 | Song menus | Implemented | Play, Play next, Add to queue, Like/Unlike, View artist, Hide and playlist editing. Remove appears only for owned playlists and asks for confirmation. |
 | Likes / dislikes | Provider alternative | Spotify Save/Unsave including current player. Hide is a Grove preference, not a Spotify dislike. |
@@ -29,14 +33,17 @@ or second Premium account works in production.
 | Loading / retry / quality | Implemented; live audio check open | Settings → Audio: 96/160/320 kbps and volume levelling (automatic/per song/per album, pregain), applied by restarting the player at the same song and position. Now Playing shows the source format (codec · bitrate · 44.1 kHz) using librespot's own file preference order. A lost librespot session (network drop, sleep, invalid session) reconnects automatically with the saved approval on a capped backoff and restores song, context and position; the player shows Reconnecting… meanwhile. Also: fade between songs (Off or 2–12 s, gapless albums kept), equalizer presets plus a 5/10-band custom curve, sleep timer, and resume positions for episodes and 20-minute tracks. |
 | Light / dark | Implemented | Settings; persisted independently from window size. |
 | Normal / Compact / Mini / restore | Implemented | Settings layout and mini/restore; previous expanded size is retained. |
-| Windows media controls | Implemented; hardware check open | Shared native session, metadata/timeline and guarded callbacks; Settings can disable it. Review modes register no system session. |
-| Custom global shortcuts | Missing | Grove does not register configurable Ctrl/Alt combinations. |
+| System media controls | Implemented; hardware check open | Windows: shared SMTC session with taskbar buttons. Linux: MPRIS; macOS: Now Playing (both through souvlaki behind the `MediaControls` seam, never run on hardware). mpv gets `--media-controls=no` so it cannot claim media keys. Settings can disable it; review modes register no system session. |
+| Custom global shortcuts | Implemented (Windows); live check open | Settings → Keyboard shortcuts records Ctrl/Alt chords for Play/pause, Next and Previous through `RegisterHotKey`, reports conflicts, and Space / ← / → work inside the window. Not available on Linux or macOS yet. |
+| Tray / System theme / crash reports | Implemented (Windows); live check open | Opt-in keep-playing-in-the-tray with a menu; Dark/Light/System following the Windows app setting; a redacted local crash log with a notice on the next launch. Nothing is uploaded. |
+| Synced lyrics | Implemented; live check open | Now Playing shows LRCLIB synced lyrics (public metadata only), follows the position and seeks on click. |
 | Output-device recovery | Implemented; hardware check open | Settings → Audio chooses System default (follows Windows) or a named output, saved across restarts; a missing saved output is labelled unavailable. Grove's own librespot sink reopens on a Windows default change, pauses instead of blocking when the output fails, and resumes once if the same song's output returns within 10 minutes. Physical Bluetooth/USB/HDMI loss and return are not yet verified. |
 | Local audio files | Implemented | Settings → Open audio file uses Tide's owned mpv backend without a Spotify login. Native play/pause, seek, volume, retry, mini and return use the same player. Spotify pause must be confirmed before switching; local files cannot enter jams. Requires the shared mpv runtime. |
 | Jams on own devices | Nearby rooms implemented | Real TCP host/guest review, ownership, host control, drift correction, stale samples and confirmed consumption. Each account streams independently; two-account audio validation remains open. |
 | Internet Jams | Implemented; live check pending | Joins Tide relay rooms (protocol 1, TLS, short codes, wake-up, bounded retry/rejoin). Grove-hosted internet rooms use cross-service protocol 2 on the free self-hostable `grove-jam-relay`; Tide needs protocol 2 to follow them. No public relay deployment validated. |
 | Tide ↔ Grove jams / matching | Implemented; audible check pending | Grove follows Tide hosts on Tide's relay, interop-tested in CI against a pinned Tide commit. ISRC auto-match, duration-ranked candidates, opt-in remembered choices, album/playlist entries. Encrypted nearby rooms are Grove-only until Tide adopts protocol 3. See [cross-service jams](../CROSS_SERVICE_JAMS.md). |
-| Installer / updates | Private candidate | Grove has its own per-user installer, portable package, checksums and rollback/uninstall checks. Manual updates only; Spotify verification holds the beta from release. See [beta status](BETA_STATUS.md). |
+| Installer / updates | Private candidate | Per-user installer, portable package, checksums and rollback/uninstall checks. Settings → Updates checks GitHub Releases and verifies the installer's size and SHA-256 from `GroveUpdate.json` before handing off; releases are unsigned, so this proves integrity, not authenticity. Spotify verification holds the beta from release. See [beta status](BETA_STATUS.md). |
+| Mac / Linux | Preview; hardware check pending | Like Tide's Mac preview, but unsigned and CI-only: the ubuntu and macos jobs test, run clippy and the offline review modes, and upload a portable tar.gz. Sign-ins use the Secret Service or Keychain, local files use mpv over a private Unix socket, and the browser opens through `xdg-open`/`open`. No installer, updater, tray, global shortcuts or System theme there yet. See [PORTABLE.md](PORTABLE.md). |
 | Branding | Partial | Approved log/record SVG is embedded. The live X banner still predates the final logo and was not replaced during this audit. |
 
 Home is the default screen. Account has one primary connection action; client IDs,
@@ -63,6 +70,9 @@ launch consent, write preferences or register Windows media controls.
 ./target/debug/grove-music.exe --review-audio "$env:TEMP/grove-audio-review"
 ```
 
+CI runs the same build, tests, clippy and the smoke, feature and jam review modes
+on Windows, and (non-blocking) on Ubuntu under Xvfb and on macOS.
+
 Feature review uses actual callbacks with synthetic responses: sign-in guard,
 overlapping searches, pagination, song menus, reorder/remove, hide/reset,
 confirmed starts, stale EOF, timeout preservation, collection entry shapes,
@@ -77,8 +87,10 @@ Spotify credentials or a file-picker dialog. The other review modes never start
 an audio backend. The actual Windows file chooser still needs manual validation.
 
 Live checks remain: fresh consent with added scopes; Spotify search/library and
-playlist writes; native audio/seek; two-account jam audio; media keys in games;
-and physical output-device switching. Browse up to 2,000 rows; Play/Shuffle use
+playlist writes; real 429 and `QUOTA_EXCEEDED` replies; native audio/seek and the
+audio settings by ear; reconnect after a real network drop or sleep; two-account
+jam audio and a public relay host; media keys in games; physical output-device
+switching; and any run of the Linux or macOS builds on real hardware. Browse up to 2,000 rows; Play/Shuffle use
 up to 500 loaded songs; the editable Grove queue holds up to 500 tracks.
 
 ## Spotify references

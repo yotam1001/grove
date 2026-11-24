@@ -128,7 +128,9 @@ pub fn start(
                         ui.set_library_ready(true);
                         ui.set_feature_message("".into());
                         feature_state.borrow_mut().library_ready(&ui, &playlists);
-                        feature_state.borrow_mut().grant_ready(&ui);
+                        if playlists["refreshed"] != true {
+                            feature_state.borrow_mut().grant_ready(&ui);
+                        }
                         if ui.get_jam_name()=="Listener"{ui.set_jam_name(name.clone().into());}
                         ui.set_account_name(name.into());
                         ui.set_owned_playlists(ModelRc::new(VecModel::from(playlists["items"].as_array().into_iter().flatten().filter(|p|p["owner"]["id"].is_string()&&p["owner"]["id"]==playlists["account"]).filter_map(|p|Some(GrovePlaylist{title:p["name"].as_str()?.into(),uri:p["uri"].as_str()?.into(),subtitle:"Your playlist".into()})).collect::<Vec<_>>())));
@@ -149,16 +151,8 @@ pub fn start(
                             .collect::<Vec<_>>();
                         ui.set_playlists(ModelRc::new(VecModel::from(rows)));
                         ui.set_playlists_more(!playlists["next"].is_null());
-                        ui.set_library_note(
-                            if playlists["load_failed"] == true {
-                                "Playlist loading failed. Use Refresh to retry."
-                            } else if !playlists["next"].is_null() {
-                                "Showing the first 50 playlists."
-                            } else {
-                                "Your saved playlists"
-                            }
-                            .into(),
-                        );
+                        let note = feature_state.borrow_mut().playlists_note(&ui, &playlists);
+                        ui.set_library_note(note.into());
                         if ui.get_message().starts_with("Refreshing") {
                             ui.set_message(String::new().into());
                         }

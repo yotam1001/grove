@@ -1,9 +1,11 @@
 //! Separate Web API and native librespot grants, with cancellable background work.
 use crate::{
     audio::reconnect::{self, Backoff, RestorePoint, WakeDetector},
-    auth, credentials,
+    auth,
+    browse_cache::LibraryCache,
+    credentials,
     engine::Engine,
-    web_api::{SavedLibrary, WebApi},
+    web_api::{LibraryPage, SavedLibrary, WebApi},
 };
 use librespot_core::authentication::Credentials;
 use serde_json::{json, Value};
@@ -50,11 +52,11 @@ pub enum Event {
 }
 enum Outcome {
     Feature(u64, Result<Value, String>),
-    Library(WebApi, Value),
+    Library(Box<(WebApi, LibraryPage, LibraryCache)>),
     Playback(Engine, Credentials),
     Reconnected(Engine, Credentials, u64),
     ReconnectFailed(u64, String),
-    Playlists(Value),
+    Playlists(LibraryPage),
     Queue(u64, Value),
     Empty,
 }
@@ -122,10 +124,14 @@ async fn run(
     let mut account_name = String::new();
     let mut premium = None;
     let mut engine: Option<Engine> = None;
-    let mut jobs: JoinSet<(u64, bool, Result<Outcome, String>)> = JoinSet::new();
+    let mut jobs: Jobs = JoinSet::new();
     let mut generation = 1u64;
     let mut busy = false;
     let mut queue_pending = false;
+    // The startup library from the last launch (profile and first playlists page).
+    let mut library_cache = LibraryCache::memory();
+    // A playlists refresh in flight: repeated Refresh clicks share it.
+    let mut library_pending = false;
     let mut queue_timer = tokio::time::interval(std::time::Duration::from_secs(15));
     let (lost_tx, mut lost_rx) = tokio::sync::mpsc::unbounded_channel::<u64>();
     let mut reconnecting: Option<Reconnect> = None;
@@ -157,12 +163,13 @@ async fn run(
                     }
                     Request::Shutdown => break,
                     Request::Cancel => {
-                        generation += 1; jobs.abort_all(); busy = false; queue_pending = false;
+                        generation += 1; jobs.abort_all(); busy = false; queue_pending = false; library_pending = false;
                         let _ = events.send(Event::Busy(false, "Sign-in cancelled.".into()));
                     }
                     Request::SignOut => {
-                        generation += 1; jobs.abort_all(); busy = false; queue_pending = false;
+                        generation += 1; jobs.abort_all(); busy = false; queue_pending = false; library_pending = false;
                         engine = None; web = None; reconnecting = None;
+                        library_cache = LibraryCache::memory(); LibraryCache::forget();
                         let library = credentials::delete(credentials::LIBRARY);
                         let playback = credentials::delete(credentials::PLAYBACK);
                         let _ = events.send(Event::Disconnected("Signed out".into()));
@@ -176,7 +183,7 @@ async fn run(
                     }
                     Request::SignInLibrary(id) => {
                         if busy { continue; }
-                        generation += 1; jobs.abort_all(); queue_pending = false;
+                        generation += 1; jobs.abort_all(); queue_pending = false; library_pending = false;
                         busy = true;
                         let _ = events.send(Event::Busy(true,"Continue in your browser to connect Spotify.".into()));
                         let gen = generation;
@@ -185,9 +192,11 @@ async fn run(
                             let result = async {
                                 let id = if id.trim().is_empty() { auth::WEB_CLIENT_ID.to_owned() } else { id.trim().to_owned() };
                                 let tokens = auth::authorize(&id,8989,auth::WEB_SCOPES).await?;
-                                let mut api = WebApi::verify(id,tokens,None,|seconds| { let _=progress.send(Event::Busy(true,format!("Spotify is busy. Keeping your approval and retrying in {seconds} seconds…"))); }).await?;
-                                let page = api.playlists().await.unwrap_or_else(|_| json!({"items":[],"load_failed":true}));
-                                Ok(Outcome::Library(api,page))
+                                let mut api = WebApi::verify(id,tokens,None,None,|seconds| { let _=progress.send(Event::Busy(true,format!("Spotify is busy. Keeping your approval and retrying in {seconds} seconds…"))); }).await?;
+                                // A new sign-in always asks; the old page only covers a 429.
+                                let cache = LibraryCache::open(&api.account_id);
+                                let page = api.library(cache.playlists(),true).await;
+                                Ok(Outcome::Library(Box::new((api,page,cache))))
                             }.await;
                             (gen,true,result)
                         });
@@ -202,9 +211,13 @@ async fn run(
                             let result = async {
                                 let Some(saved) = credentials::load::<SavedLibrary>(credentials::LIBRARY)? else { return Ok(Outcome::Empty); };
                                 let tokens = auth::refresh(&saved.client_id,&saved.refresh_token).await?;
-                                let mut api = WebApi::verify(saved.client_id.clone(),tokens,Some(&saved.account_id),|seconds| { let _=progress.send(Event::Busy(true,format!("Spotify is busy. Keeping your approval and retrying in {seconds} seconds…"))); }).await?;
-                                let page = api.playlists().await.unwrap_or_else(|_| json!({"items":[],"load_failed":true}));
-                                Ok(Outcome::Library(api,page))
+                                // The last launch's profile and playlists go through the same
+                                // budgets and cache as browsing: no request while fresh, shown
+                                // at once while stale, and a 429 never waits.
+                                let cache = LibraryCache::open(&saved.account_id);
+                                let mut api = WebApi::verify(saved.client_id.clone(),tokens,Some(&saved.account_id),cache.profile(),|seconds| { let _=progress.send(Event::Busy(true,format!("Spotify is busy. Keeping your approval and retrying in {seconds} seconds…"))); }).await?;
+                                let page = api.library(cache.playlists(),false).await;
+                                Ok(Outcome::Library(Box::new((api,page,cache))))
                             }.await;
                             (gen,true,result)
                         });
@@ -214,7 +227,7 @@ async fn run(
                         if web.is_none() { let _ = events.send(Event::Error("Sign in for library access first.".into())); continue; }
                         if premium==Some(false) { let _ = events.send(Event::Error("Local Spotify playback requires a Premium account.".into())); continue; }
                         let account = account_id.clone();
-                        generation += 1; jobs.abort_all(); queue_pending = false;
+                        generation += 1; jobs.abort_all(); queue_pending = false; library_pending = false;
                         engine = None; reconnecting = None;
                         engine_ids += 1; let engine_id = engine_ids; let lost = lost_tx.clone();
                         let _ = events.send(Event::Disconnected("Connecting Spotify…".into()));
@@ -240,12 +253,9 @@ async fn run(
                     }
                     Request::RefreshLibrary => {
                         let Some(api) = web.as_ref().cloned() else { continue; };
-                        let gen = generation;
-                        jobs.spawn(async move {
-                            let mut api = api.lock().await;
-                            let result = api.playlists().await.map(Outcome::Playlists);
-                            (gen,false,result)
-                        });
+                        if library_pending { continue; }
+                        library_pending = true;
+                        spawn_library_refresh(&mut jobs, api, library_cache.playlists(), generation);
                     }
                     Request::RestartAudio => {
                         if busy || reconnecting.is_some() { continue; }
@@ -277,7 +287,8 @@ async fn run(
                 if gen != generation { continue; }
                 match result {
                     Ok(Outcome::Feature(id,data)) => { let _ = events.send(Event::Feature {id,data}); }
-                    Ok(Outcome::Library(api,page)) => {
+                    Ok(Outcome::Library(library)) => {
+                        let (mut api, page, cache) = *library;
                         if web.is_some() && account_id != api.account_id {
                                 engine = None;
                                 if let Err(error) = credentials::delete(credentials::PLAYBACK) { let _ = events.send(Event::Error(error)); }
@@ -285,12 +296,19 @@ async fn run(
                                 let _ = events.send(Event::SignedOut);
                         }
                         // Any remaining library jobs belong to the previous grant.
-                        generation += 1; jobs.abort_all(); queue_pending = false;
+                        generation += 1; jobs.abort_all(); queue_pending = false; library_pending = false;
                         account_id = api.account_id.clone(); account_name = api.name.clone(); premium = api.premium;
                         if let Err(error) = credentials::save(credentials::LIBRARY,&api.saved()) { let _ = events.send(Event::Error(error)); }
-                        let name = api.name.clone(); web = Some(Arc::new(Mutex::new(api)));
+                        library_cache = cache;
+                        if let Some(profile) = api.verified_profile.take() { library_cache.put_profile(&profile); }
+                        if page.store { library_cache.put_playlists(&page.page); }
+                        let name = api.name.clone(); let api = Arc::new(Mutex::new(api)); web = Some(api.clone());
                         busy = false; let _ = events.send(Event::Busy(false,String::new()));
-                        let _ = events.send(Event::Library { name, playlists:page });
+                        let _ = events.send(Event::Library { name, playlists:page.page });
+                        if page.refresh {
+                            library_pending = true;
+                            spawn_library_refresh(&mut jobs, api, library_cache.playlists(), generation);
+                        }
                     }
                     Ok(Outcome::Playback(local,mut credential)) => {
                         if local.has_ended() {
@@ -332,7 +350,13 @@ async fn run(
                         }
                     }
                     Ok(Outcome::Playlists(page)) => {
-                        if web.is_some() { let _=events.send(Event::Library {name:account_name.clone(),playlists:page}); }
+                        library_pending = false;
+                        if web.is_some() {
+                            if page.store { library_cache.put_playlists(&page.page); }
+                            // A refresh of the same grant: open pages stay as they are.
+                            let mut playlists = page.page; playlists["refreshed"] = json!(true);
+                            let _=events.send(Event::Library {name:account_name.clone(),playlists});
+                        }
                     }
                     Ok(Outcome::Queue(engine_gen,value)) => {
                         queue_pending=false;
@@ -439,6 +463,21 @@ impl Reconnect {
         ));
         true
     }
+}
+
+type Jobs = JoinSet<(u64, bool, Result<Outcome, String>)>;
+
+/// Fetches the first playlists page; the cached page covers a 429 or failure.
+fn spawn_library_refresh(
+    jobs: &mut Jobs,
+    api: Arc<Mutex<WebApi>>,
+    cached: Option<crate::browse_cache::Hit>,
+    gen: u64,
+) {
+    jobs.spawn(async move {
+        let page = api.lock().await.library(cached, true).await;
+        (gen, false, Ok(Outcome::Playlists(page)))
+    });
 }
 
 async fn until(due: Option<tokio::time::Instant>) {
