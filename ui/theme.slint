@@ -1,19 +1,97 @@
-// Grove's colour tokens. Every component reads them; the window sets `light`.
+// Grove's design tokens. Every component reads them; the window sets `light`.
+// Identity: charcoal surfaces, near-black chrome and the fresh-green #35df82
+// accent. Older token names (canvas, rail, surface, …) stay for existing pages.
+
+// Short, purposeful motion. Durations collapse to zero when motion is off.
+export global GroveMotion {
+    in-out property <bool> enabled: true;
+    // Hover and press feedback.
+    out property <duration> fast: self.enabled ? 110ms : 0ms;
+    // Selection, page fade and slide.
+    out property <duration> base: self.enabled ? 180ms : 0ms;
+    // Panels, drawers and colour changes that follow the artwork.
+    out property <duration> slow: self.enabled ? 320ms : 0ms;
+}
+
 export global GroveTheme {
     in-out property <bool> light: false;
-    out property <color> canvas: light ? #f4f7f4 : #141617;
-    out property <color> rail: light ? #e8efea : #0b0d0e;
-    out property <color> surface: light ? #ffffff : #1d2022;
-    out property <color> selected: light ? #dce5df : #24282a;
-    out property <color> pressed: light ? #d1ded5 : #303639;
-    out property <color> border: light ? #becdc2 : #303437;
-    out property <color> line: light ? #d2ddd5 : #292d30;
-    out property <color> text: light ? #15221b : #f5f7f8;
-    out property <color> secondary: light ? #3f5147 : #bdc3c7;
-    out property <color> muted: light ? #53675b : #a1a8ae;
-    out property <color> disabled: #777f86;
-    out property <color> accent: light ? #147b48 : #35df82;
-    out property <color> accent-pressed: #27bd6c;
-    out property <color> on-accent: light ? #ffffff : #08170f;
+
+    // Optional accent that follows the current artwork. Rust derives both
+    // variants so each one keeps at least 4.5:1 contrast on its theme.
+    in-out property <bool> follow-art: false;
+    in-out property <bool> art-valid: false;
+    in-out property <color> art-tint: #35df82;
+    in-out property <color> art-accent-dark: #35df82;
+    in-out property <color> art-accent-light: #147b48;
+
+    // Surfaces, from back to front.
+    out property <color> canvas: light ? #f3f6f3 : #121415;
+    out property <color> chrome: light ? #e9efea : #0a0c0d;
+    out property <color> rail: self.chrome;
+    out property <color> surface: light ? #ffffff : #1b1e20;
+    out property <color> raised: light ? #ffffff : #222628;
+    out property <color> overlay: light ? #fbfcfb : #1d2123;
+    out property <color> hover: light ? #e2eae4 : #262a2d;
+    out property <color> selected: light ? #d9e6dd : #23302a;
+    out property <color> pressed: light ? #cfdcd3 : #30363a;
+    out property <color> border: light ? #c9d6cc : #2f3437;
+    out property <color> line: light ? #dbe3dd : #24282b;
+    out property <color> scrim: light ? #1a221d55 : #000000a0;
+    out property <color> shadow: light ? #1f2b2340 : #000000b0;
+
+    // Ink.
+    out property <color> text: light ? #13201a : #f4f6f5;
+    out property <color> secondary: light ? #3d4f45 : #c3c9c6;
+    out property <color> muted: light ? #56695e : #9aa3a0;
+    out property <color> disabled: light ? #8a958f : #646c69;
     out property <color> warning: light ? #88581c : #e8bd7a;
+    out property <color> danger: light ? #a33a32 : #f08a80;
+
+    // Accent. `accent-base` is Grove green; `accent` may follow the artwork.
+    out property <color> accent-base: light ? #147b48 : #35df82;
+    out property <color> accent: self.follow-art && self.art-valid ? (light ? self.art-accent-light : self.art-accent-dark) : self.accent-base;
+    out property <color> accent-pressed: light ? self.accent.darker(0.2) : self.accent.darker(0.15);
+    out property <color> accent-hover: light ? self.accent.darker(0.08) : self.accent.brighter(0.08);
+    out property <color> accent-soft: self.accent.with-alpha(light ? 0.14 : 0.16);
+    out property <color> on-accent: light ? #ffffff : #08170f;
+    out property <color> focus: light ? #0f6b3d : #7ff0b0;
+
+    // Radii.
+    out property <length> radius-sm: 6px;
+    out property <length> radius-md: 10px;
+    out property <length> radius-lg: 14px;
+    out property <length> radius-xl: 20px;
+
+    // Spacing scale (4px grid).
+    out property <length> space-1: 4px;
+    out property <length> space-2: 8px;
+    out property <length> space-3: 12px;
+    out property <length> space-4: 16px;
+    out property <length> space-5: 24px;
+    out property <length> space-6: 32px;
+    out property <length> space-7: 48px;
+
+    // Type scale.
+    out property <length> type-caption: 11px;
+    out property <length> type-small: 12px;
+    out property <length> type-body: 14px;
+    out property <length> type-lead: 16px;
+    out property <length> type-title: 20px;
+    out property <length> type-heading: 28px;
+    out property <length> type-display: 40px;
+
+    // Elevation: shadow blur and offset for raised cards, popovers and drawers.
+    out property <length> elevation-1: light ? 6px : 10px;
+    out property <length> elevation-2: light ? 16px : 22px;
+    out property <length> elevation-3: light ? 32px : 40px;
+
+    // Placeholder art: a stable charcoal-green gradient per seed instead of a grey square.
+    public pure function art(seed: int) -> brush {
+        return seed == 0 ? @linear-gradient(140deg, #1f6f46 0%, #0f2a1d 100%)
+            : seed == 1 ? @linear-gradient(140deg, #2b5f73 0%, #14252c 100%)
+            : seed == 2 ? @linear-gradient(140deg, #6a5a2c 0%, #231e10 100%)
+            : seed == 3 ? @linear-gradient(140deg, #3c6b38 0%, #142312 100%)
+            : seed == 4 ? @linear-gradient(140deg, #4a4f7a 0%, #191b2a 100%)
+            : @linear-gradient(140deg, #2f3f39 0%, #121816 100%);
+    }
 }

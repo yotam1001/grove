@@ -1,7 +1,7 @@
 // Add a song to, or remove it from, one of your playlists.
 import { LineEdit, ScrollView } from "std-widgets.slint";
 import { GrovePlaylist } from "../model.slint";
-import { GroveButton } from "../components.slint";
+import { GroveButton, GroveEyebrow, GroveSidebarPlaylist } from "../components.slint";
 import { GroveTheme } from "../theme.slint";
 
 export component PlaylistEditor inherits Rectangle {
@@ -11,24 +11,28 @@ export component PlaylistEditor inherits Rectangle {
     in-out property <string> edit-playlist;
     in-out property <string> edit-track;
     callback playlist-edit(bool);
-    background: GroveTheme.surface; border-radius: 10px;
+    background: GroveTheme.overlay;
+    border-radius: GroveTheme.radius-lg;
+    border-width: 1px; border-color: GroveTheme.border;
+    drop-shadow-blur: GroveTheme.elevation-2; drop-shadow-offset-y: 8px; drop-shadow-color: GroveTheme.shadow;
     VerticalLayout {
-        padding: 16px; spacing: 10px;
-        Text { text: root.removing-from-playlist ? "Remove song from playlist?" : "Add to playlist"; color: GroveTheme.text; font-size: 19px; font-weight: 600; }
+        padding: 20px; spacing: 12px;
+        Text { text: root.removing-from-playlist ? "Remove song from playlist?" : "Add to playlist"; color: GroveTheme.text; font-size: 19px; font-weight: 700; }
         Text { text: root.removing-from-playlist ? "All copies of this song will be removed from " + root.collection-title + "." : "Choose one of your playlists, or paste a playlist link."; color: GroveTheme.muted; wrap: word-wrap; }
+        if !root.removing-from-playlist && root.owned-playlists.length > 0 : GroveEyebrow { text: "YOUR PLAYLISTS"; }
         if !root.removing-from-playlist && root.owned-playlists.length > 0 : ScrollView {
-            height: 120px;
+            height: min(160px, root.owned-playlists.length * 50px);
             VerticalLayout {
-                spacing: 4px;
-                for playlist in root.owned-playlists : GroveButton { text: playlist.title; height: 36px; navigation: true; selected: root.edit-playlist == playlist.uri; clicked => { root.edit-playlist = playlist.uri; } }
+                spacing: 2px;
+                for playlist in root.owned-playlists : GroveSidebarPlaylist { title: playlist.title; subtitle: playlist.subtitle; active: root.edit-playlist == playlist.uri; clicked => { root.edit-playlist = playlist.uri; } }
             }
         }
         if !root.removing-from-playlist : LineEdit { text <=> root.edit-playlist; placeholder-text: "Playlist link"; accessible-label: "Playlist to edit"; }
         HorizontalLayout {
-            spacing: 10px; alignment: start;
-            if !root.removing-from-playlist : GroveButton { text: "Add song"; width: 100px; accent: true; clicked => { root.playlist-edit(false); } }
-            if root.removing-from-playlist : GroveButton { text: "Remove all copies"; width: 154px; clicked => { root.playlist-edit(true); } }
-            GroveButton { text: "Cancel"; width: 80px; clicked => { root.edit-track = ""; } }
+            spacing: 10px; alignment: end;
+            GroveButton { text: "Cancel"; flat: true; width: 90px; clicked => { root.edit-track = ""; } }
+            if !root.removing-from-playlist : GroveButton { text: "Add song"; width: 110px; accent: true; round: true; clicked => { root.playlist-edit(false); } }
+            if root.removing-from-playlist : GroveButton { text: "Remove all copies"; width: 164px; round: true; clicked => { root.playlist-edit(true); } }
         }
     }
 }

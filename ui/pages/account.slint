@@ -1,7 +1,17 @@
 // Account (page 2): Spotify sign-in, playback approval and connection options.
 import { LineEdit } from "std-widgets.slint";
-import { GroveButton, Rule } from "../components.slint";
+import { GroveButton, GroveCard, GroveEyebrow, Mark, Rule } from "../components.slint";
 import { GroveTheme } from "../theme.slint";
+
+component StatusPill inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    height: 26px; width: pill.preferred-width + 30px;
+    border-radius: 13px;
+    background: root.on ? GroveTheme.accent-soft : GroveTheme.hover;
+    Rectangle { x: 10px; y: 9px; width: 8px; height: 8px; border-radius: 4px; background: root.on ? GroveTheme.accent : GroveTheme.muted; }
+    pill := Text { x: 24px; height: parent.height; text: root.text; color: root.on ? GroveTheme.text : GroveTheme.secondary; font-size: 12px; font-weight: 600; vertical-alignment: center; }
+}
 
 export component AccountPage inherits VerticalLayout {
     in property <bool> library-ready;
@@ -15,30 +25,72 @@ export component AccountPage inherits VerticalLayout {
     callback cancel-sign-in;
     callback sign-out;
     callback approve-playback;
-    spacing: 20px; vertical-stretch: 0;
-    if root.library-ready : Text { text: root.account-name; color: GroveTheme.text; font-size: 24px; font-weight: 600; }
-    Text { text: !root.library-ready ? "Bring your Spotify music into Grove." : !root.authenticated ? "Your Spotify library is connected. You can browse music. Playback here requires Premium." : "You're ready to listen."; color: GroveTheme.secondary; font-size: 16px; wrap: word-wrap; }
-    if !root.authenticated : GroveButton {
-        text: root.connecting ? "Connecting…" : root.library-ready ? "Enable playback (Premium)" : "Connect Spotify";
-        accent: true; width: 200px; height: 46px; enabled: !root.connecting;
-        clicked => { if root.library-ready { root.connect-engine(); } else { root.sign-in-library(); } }
-    }
-    if root.connecting : GroveButton { text: "Cancel"; width: 100px; clicked => { root.cancel-sign-in(); } }
-    if root.library-ready && !root.connecting : GroveButton { text: "Disconnect"; width: 130px; clicked => { root.sign-out(); } }
-    Text { text: "Spotify Premium is needed to stream music. Your password stays with Spotify."; color: GroveTheme.muted; font-size: 13px; wrap: word-wrap; }
-    GroveButton { text: root.account-options ? "Hide connection options" : "Connection options"; flat: true; width: 220px; clicked => { root.account-options = !root.account-options; } }
-    if root.account-options : VerticalLayout {
-        spacing: 12px;
-        Rule {}
-        HorizontalLayout {
-            spacing: 10px; alignment: start;
-            GroveButton { text: "Sign in again"; width: 130px; enabled: !root.connecting; clicked => { root.sign-in-library(); } }
-            GroveButton { text: "Reset playback"; width: 140px; enabled: root.library-ready && !root.connecting; clicked => { root.approve-playback(); } }
+    spacing: 16px; vertical-stretch: 0;
+
+    GroveCard {
+        min-height: profile.preferred-height;
+        profile := VerticalLayout {
+            padding: 22px; spacing: 16px;
+            HorizontalLayout {
+                spacing: 16px; cross-axis-alignment: center;
+                Rectangle {
+                    width: 64px; height: 64px; border-radius: 32px;
+                    background: root.library-ready ? GroveTheme.accent-base : GroveTheme.hover;
+                    if root.library-ready : Mark { kind: "user"; ink: #08170f; width: 28px; height: 28px; x: 18px; y: 18px; }
+                    if !root.library-ready : Mark { kind: "user"; ink: GroveTheme.muted; width: 28px; height: 28px; x: 18px; y: 18px; }
+                }
+                VerticalLayout {
+                    horizontal-stretch: 1; min-width: 0px; spacing: 6px; alignment: center;
+                    Text { text: root.library-ready ? root.account-name : "Connect Spotify"; color: GroveTheme.text; font-size: 22px; font-weight: 700; overflow: elide; }
+                    HorizontalLayout {
+                        spacing: 8px; alignment: start;
+                        StatusPill { text: root.library-ready ? "Library connected" : "Library not connected"; on: root.library-ready; }
+                        StatusPill { text: root.authenticated ? "Playback on" : root.connecting ? "Connecting…" : "Playback off"; on: root.authenticated; }
+                    }
+                }
+            }
+            Text { text: !root.library-ready ? "Bring your Spotify music into Grove." : !root.authenticated ? "Your Spotify library is connected. You can browse music. Playback here requires Premium." : "You're ready to listen."; color: GroveTheme.secondary; font-size: 15px; wrap: word-wrap; }
+            HorizontalLayout {
+                spacing: 10px; alignment: start;
+                if !root.authenticated : GroveButton {
+                    text: root.connecting ? "Connecting…" : root.library-ready ? "Enable playback (Premium)" : "Connect Spotify";
+                    accent: true; round: true; width: 220px; height: 44px; enabled: !root.connecting;
+                    clicked => { if root.library-ready { root.connect-engine(); } else { root.sign-in-library(); } }
+                }
+                if root.connecting : GroveButton { text: "Cancel"; round: true; width: 100px; height: 44px; clicked => { root.cancel-sign-in(); } }
+                if root.library-ready && !root.connecting : GroveButton { text: "Disconnect"; round: true; width: 130px; height: 44px; clicked => { root.sign-out(); } }
+            }
+            Text { text: "Spotify Premium is needed to stream music. Your password stays with Spotify."; color: GroveTheme.muted; font-size: 13px; wrap: word-wrap; }
         }
-        GroveButton { text: "Remove saved sign-in"; width: 200px; enabled: !root.connecting; clicked => { root.sign-out(); } }
-        Text { text: "Custom Spotify app (optional)"; color: GroveTheme.text; font-size: 13px; }
-        LineEdit { text <=> root.client-id; placeholder-text: "Client ID"; accessible-label: "Optional Spotify app client ID"; height: 40px; }
-        Text { text: "Leave this empty for the default connection. A custom app needs http://127.0.0.1:8989/login as its redirect address."; color: GroveTheme.muted; font-size: 12px; wrap: word-wrap; }
-        Text { text: "Spotify may show the shared app's name during sign-in."; color: GroveTheme.muted; font-size: 12px; wrap: word-wrap; }
+    }
+
+    GroveCard {
+        min-height: options.preferred-height;
+        options := VerticalLayout {
+            padding: 14px; padding-left: 22px; spacing: 12px;
+            HorizontalLayout {
+                spacing: 10px; cross-axis-alignment: center;
+                VerticalLayout {
+                    horizontal-stretch: 1; alignment: center; spacing: 2px;
+                    Text { text: "Connection options"; color: GroveTheme.text; font-size: 15px; font-weight: 650; }
+                    Text { text: "Sign in again, reset playback or use your own Spotify app."; color: GroveTheme.muted; font-size: 12px; wrap: word-wrap; }
+                }
+                GroveButton { icon: root.account-options ? "expand" : "collapse"; flat: true; round: true; width: 36px; height: 36px; label: root.account-options ? "Hide connection options" : "Connection options"; clicked => { root.account-options = !root.account-options; } }
+            }
+            if root.account-options : VerticalLayout {
+                spacing: 12px;
+                Rule {}
+                HorizontalLayout {
+                    spacing: 10px; alignment: start;
+                    GroveButton { text: "Sign in again"; width: 130px; enabled: !root.connecting; clicked => { root.sign-in-library(); } }
+                    GroveButton { text: "Reset playback"; width: 140px; enabled: root.library-ready && !root.connecting; clicked => { root.approve-playback(); } }
+                    GroveButton { text: "Remove saved sign-in"; width: 190px; enabled: !root.connecting; clicked => { root.sign-out(); } }
+                }
+                GroveEyebrow { text: "CUSTOM SPOTIFY APP (OPTIONAL)"; }
+                LineEdit { text <=> root.client-id; placeholder-text: "Client ID"; accessible-label: "Optional Spotify app client ID"; height: 40px; }
+                Text { text: "Leave this empty for the default connection. A custom app needs http://127.0.0.1:8989/login as its redirect address."; color: GroveTheme.muted; font-size: 12px; wrap: word-wrap; }
+                Text { text: "Spotify may show the shared app's name during sign-in."; color: GroveTheme.muted; font-size: 12px; wrap: word-wrap; }
+            }
+        }
     }
 }

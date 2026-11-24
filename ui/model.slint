@@ -3,3 +3,5 @@ export struct GroveTrack { title: string, artist: string, duration: string, uri:
 export struct GrovePlaylist { title: string, subtitle: string, uri: string }
 export struct GroveJamTrack { id: string, title: string, subtitle: string, removable: bool }
 export struct GroveFeatureTrack { title: string, artist: string, duration: string, uri: string, artist-uri: string, cover: image }
+// One lyric line. `timed` lines can be clicked to seek.
+export struct GroveLyricLine { text: string, timed: bool }

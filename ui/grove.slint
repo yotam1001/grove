@@ -1,18 +1,18 @@
 import { LineEdit, ScrollView, Palette } from "std-widgets.slint";
-import { GroveTrack, GrovePlaylist, GroveJamTrack, GroveFeatureTrack } from "model.slint";
-import { GroveTheme } from "theme.slint";
-import { GroveButton, Rule } from "components.slint";
+import { GroveTrack, GrovePlaylist, GroveJamTrack, GroveFeatureTrack, GroveLyricLine } from "model.slint";
+import { GroveTheme, GroveMotion } from "theme.slint";
+import { GroveButton, GroveSidebar, Rule } from "components.slint";
 import { PlayerBar } from "player.slint";
 import { PlaylistEditor } from "pages/playlist_editor.slint";
 import { AccountPage } from "pages/account.slint";
 import { FeatureListPage } from "pages/home_search.slint";
 import { JamsPage } from "pages/jams.slint";
 import { LibraryPage } from "pages/library.slint";
-import { NowPlayingPage } from "pages/now_playing.slint";
-import { QueuePage } from "pages/queue.slint";
+import { NowPlayingView } from "pages/now_playing.slint";
+import { QueueDrawer } from "pages/queue.slint";
 import { SettingsPage } from "pages/settings.slint";
 
-export { GroveTrack, GrovePlaylist, GroveJamTrack, GroveFeatureTrack }
+export { GroveTrack, GrovePlaylist, GroveJamTrack, GroveFeatureTrack, GroveLyricLine, GroveTheme, GroveMotion }
 
 // The window keeps every property and callback the Rust side uses; pages and the
 // player bar receive them through bindings.
@@ -21,7 +21,7 @@ export component GroveWindow inherits Window {
     private property <bool> show-about: false;
     callback save-support;
     title: "Grove";
-    icon: @image-url("../assets/grove/logo.svg");
+    icon: @image-url("../assets/grove/logo-split-disc.svg");
     preferred-width: 1200px; preferred-height: 800px;
     min-width: root.mini ? 560px : 700px; min-height: root.mini ? 100px : 540px;
     background: GroveTheme.canvas;
@@ -147,60 +147,115 @@ export component GroveWindow inherits Window {
     callback jam-next;
     callback jam-pair(int);
 
-    init => { Palette.color-scheme = root.light-mode ? ColorScheme.light : ColorScheme.dark; GroveTheme.light = root.light-mode; root.narrow = root.width < 880px; root.wide = root.width >= 1000px; }
+
+    // ── Shell (issue #41) ──
+    // Sidebar: playlist artwork, parallel to `playlists`.
+    in property <[image]> playlist-covers;
+    // Back/forward history, kept by the Rust side.
+    in property <bool> can-go-back: false;
+    in property <bool> can-go-forward: false;
+    callback navigate-back;
+    callback navigate-forward;
+    // The queue drawer (#27).
+    in-out property <bool> queue-open: false;
+    in property <[GroveTrack]> autoplay-queue;
+    in-out property <string> queue-query;
+    in property <[GroveTrack]> queue-search-results;
+    in property <[int]> queue-search-index;
+    in property <[GroveFeatureTrack]> related-tracks;
+    in property <int> related-state: 0;
+    in property <string> related-note;
+    callback queue-move(int,int);
+    callback queue-filter(string);
+    callback load-related;
+    callback related-action(string,int);
+    callback autoplay-action(string,int);
+    // Hide beside Like (#30): hidden songs never autoplay.
+    in property <bool> current-hidden: false;
+    callback hide-current(bool);
+    // Immersive Now Playing (#13) and synced lyrics (#12).
+    in property <string> current-album;
+    in property <image> now-playing-backdrop;
+    in property <image> now-playing-cover;
+    in-out property <int> now-playing-tab: 0;
+    in-out property <bool> accent-follows-art: false;
+    in property <[GroveLyricLine]> lyrics-lines;
+    in property <int> lyrics-active: -1;
+    in property <bool> lyrics-synced: false;
+    in property <int> lyrics-state: 0;
+    in property <string> lyrics-status;
+    in property <string> lyrics-source;
+    callback lyrics-seek(int);
+    callback lyrics-retry;
+    out property <bool> now-playing-visible: root.page == 0 && !root.mini;
+    out property <bool> lyrics-open: root.now-playing-visible && root.now-playing-tab == 0;
+    // Set from width changes (not bound) so window layout cannot loop.
+    out property <bool> sidebar-wide: true;
+    private property <bool> dock-room: false;
+    private property <bool> queue-docked: root.queue-open && root.dock-room;
+    private property <int> before-now-playing: 5;
+    // True for the first frame of a page change; the fade and slide run as it clears.
+    in-out property <bool> page-entering: false;
+    private property <length> player-height: 88px;
+    private property <image> no-image;
+
+    init => { Palette.color-scheme = root.light-mode ? ColorScheme.light : ColorScheme.dark; GroveTheme.light = root.light-mode; GroveTheme.follow-art = root.accent-follows-art; root.narrow = root.width < 880px; root.wide = root.width >= 1000px; root.sidebar-wide = !root.compact-mode && root.width >= 880px; root.dock-room = root.width >= 1360px; }
+    changed compact-mode => { root.sidebar-wide = !root.compact-mode && root.width >= 880px; }
+    changed accent-follows-art => { GroveTheme.follow-art = root.accent-follows-art; }
     changed light-mode => { GroveTheme.light = root.light-mode; Palette.color-scheme = root.light-mode ? ColorScheme.light : ColorScheme.dark; }
-    changed page => { root.show-link = false; root.page-changed(root.page); }
-    changed width => { root.narrow = root.width < 880px; root.wide = root.width >= 1000px; }
+    changed page => {
+        // The queue is a drawer now; page 1 opens it over Now Playing.
+        if root.page == 1 {
+            root.queue-open = true;
+            root.page = 0;
+        } else {
+            if root.page != 0 { root.before-now-playing = root.page; }
+            root.show-link = false;
+            root.page-entering = true;
+            root.page-changed(root.page);
+        }
+    }
+    // One frame at the start position, then a short fade and slide in.
+    Timer { interval: 16ms; running: root.page-entering; triggered => { root.page-entering = false; } }
+    changed width => { root.narrow = root.width < 880px; root.wide = root.width >= 1000px; root.sidebar-wide = !root.compact-mode && root.width >= 880px; root.dock-room = root.width >= 1360px; }
 
     VerticalLayout {
         spacing: 0; padding: 0;
         if !root.mini : HorizontalLayout {
             spacing: 0;
-            Rectangle {
-                width: root.narrow ? 170px : 194px;
-                background: GroveTheme.rail;
-                VerticalLayout {
-                    padding: root.narrow ? 12px : 18px; spacing: root.narrow ? 6px : 12px;
-                    HorizontalLayout {
-                        height: root.narrow ? 42px : 60px; spacing: 12px; cross-axis-alignment: center;
-                        Image { source: @image-url("../assets/grove/logo.svg"); width: 32px; height: 32px; image-fit: contain; }
-                        Text { text: "Grove"; color: GroveTheme.text; font-size: 27px; font-weight: 650; vertical-alignment: center; }
-                    }
-                    ScrollView {
-                        VerticalLayout {
-                            spacing: root.narrow ? 4px : 6px; padding: 0;
-                            for item in [{label:"Home",page:5,icon:"home"},{label:"Search",page:6,icon:"search"},{label:"Library",page:3,icon:"library"},{label:"Now playing",page:0,icon:"listen"},{label:"Queue",page:1,icon:"queue"},{label:"Shared jams",page:4,icon:"people"}] : GroveButton {
-                                text: item.label; icon: item.icon; navigation: true;
-                                selected: root.page == item.page; flat: true; height: root.narrow ? 34px : 40px;
-                                clicked => { root.page = item.page; }
-                            }
-                        }
-                    }
-                    Rule {}
-                    GroveButton { text: "Settings"; icon: "settings"; navigation: true; selected: root.page == 8; flat: true; height: root.narrow ? 34px : 40px; clicked => { root.page = 8; } }
-                    GroveButton { text: "Account"; icon: "link"; navigation: true; selected: root.page == 2; flat: true; height: root.narrow ? 34px : 40px; clicked => { root.page = 2; } }
-
-                }
+            GroveSidebar {
+                page <=> root.page;
+                wide: root.sidebar-wide;
+                library-ready: root.library-ready;
+                jam-connected: root.jam-connected;
+                collection-uri: root.collection-uri;
+                account-name: root.account-name;
+                playlists: root.playlists;
+                playlist-covers: root.playlist-covers;
+                open-collection(uri, title) => { root.page = 3; root.browse(uri, title); }
             }
             ScrollView {
                 private property <int> shown-page: root.page;
                 changed shown-page => { self.content-y = 0px; }
                 horizontal-stretch: 1;
+                opacity: root.page-entering ? 0 : 1;
+                animate opacity { duration: root.page-entering ? 0ms : GroveMotion.base; easing: ease-out; }
                 VerticalLayout {
                     padding: root.narrow || root.compact-mode ? 24px : 38px; spacing: root.compact-mode ? 16px : 22px;
+                    padding-top: (root.narrow || root.compact-mode ? 16px : 24px) + (root.page-entering ? 12px : 0px);
+                    animate padding-top { duration: root.page-entering ? 0ms : GroveMotion.base; easing: ease-out; }
+                    HorizontalLayout {
+                        spacing: 8px; vertical-stretch: 0; height: 36px; alignment: start;
+                        GroveButton { icon: "back"; round: true; width: 34px; height: 34px; icon-size: 18px; label: "Back"; enabled: root.can-go-back; clicked => { root.navigate-back(); } }
+                        GroveButton { icon: "forward"; round: true; width: 34px; height: 34px; icon-size: 18px; label: "Forward"; enabled: root.can-go-forward; clicked => { root.navigate-forward(); } }
+                    }
                     HorizontalLayout {
                         spacing: 16px; vertical-stretch: 0;
                         VerticalLayout {
                             spacing: 6px;
-                            Text { text: root.page == 9 ? "Listening history" : root.page == 8 ? "Settings" : root.page == 7 ? root.feature-title : root.page == 6 ? "Search" : root.page == 5 ? "Home" : root.page == 4 ? "Shared jams" : root.page == 2 ? "Spotify" : root.page == 3 ? "Your library" : root.page == 1 ? "Your queue" : "Now playing"; color: GroveTheme.text; font-size: root.narrow ? 25px : 32px; font-weight: 650; overflow: elide; }
-                            Text { text: root.page == 9 ? "Songs from this session." : root.page == 8 ? "Make yourself at home." : root.page == 7 ? "Browse this artist without interrupting playback." : root.page == 6 ? "Find music on Spotify." : root.page == 5 ? root.library-ready ? "Your favorites, ready to play." : "Your music in one place." : root.page == 4 ? "Listen together, on your own devices." : root.page == 2 ? "Your Spotify account." : root.page == 3 ? root.account-name : root.page == 1 ? "Your next songs, in order." : "Pick up where you left off."; color: GroveTheme.muted; font-size: 16px; wrap: word-wrap; }
+                            Text { text: root.page == 9 ? "Listening history" : root.page == 8 ? "Settings" : root.page == 7 ? root.feature-title : root.page == 6 ? "Search" : root.page == 5 ? "Home" : root.page == 4 ? "Shared jams" : root.page == 2 ? "Spotify" : root.page == 3 ? "Your library" : root.page == 1 ? "Your queue" : "Now playing"; color: GroveTheme.text; font-size: root.narrow ? 26px : 34px; font-weight: 750; overflow: elide; }
+                            Text { text: root.page == 9 ? "Songs from this session." : root.page == 8 ? "Make yourself at home." : root.page == 7 ? "Browse this artist without interrupting playback." : root.page == 6 ? "Find music on Spotify." : root.page == 5 ? root.library-ready ? "Your favorites, ready to play." : "Your music in one place." : root.page == 4 ? "Listen together, on your own devices." : root.page == 2 ? "Your Spotify account." : root.page == 3 ? root.account-name : root.page == 1 ? "Your next songs, in order." : "Pick up where you left off."; color: GroveTheme.muted; font-size: 15px; wrap: word-wrap; }
                         }
-                    }
-                    if root.page == 1 : GroveButton { text: root.show-link ? "Close" : "Add a song link"; width: 150px; clicked => { root.show-link = !root.show-link; } }
-                    if (root.page == 0 || root.page == 1) && root.show-link : HorizontalLayout {
-                        spacing: 12px;
-                        LineEdit { text <=> root.link; placeholder-text: root.page == 1 ? "Paste a Spotify song link" : "Paste a Spotify link"; accessible-label: "Spotify link"; height: 48px; horizontal-stretch: 1; accepted => { if root.page == 1 { root.enqueue-link(); } else { root.play-link(); } } }
-                        GroveButton { text: root.page == 1 ? "Add to queue" : "Play"; accent: true; height: 48px; width: 126px; enabled: root.page == 1 ? root.library-ready : root.authenticated && !root.following-guest; clicked => { if root.page == 1 { root.enqueue-link(); } else { root.play-link(); } } }
                     }
                     if root.message != "" : Text { text: root.message; color: GroveTheme.warning; font-size: 13px; wrap: word-wrap; }
                     if root.feature-message != "" : Text { text: root.feature-message; color: GroveTheme.secondary; font-size: 13px; wrap: word-wrap; }
@@ -252,12 +307,6 @@ export component GroveWindow inherits Window {
                         song-action(a, b) => { root.song-action(a, b); }
                         feature-next => { root.feature-next(); }
                     }
-                    if root.page == 1 : QueuePage {
-                        local-queue: root.local-queue;
-                        tracks: root.tracks;
-                        compact-mode: root.compact-mode;
-                        queue-edit(a, b) => { root.queue-edit(a, b); }
-                    }
                     if root.page == 4 : JamsPage {
                         jam-message: root.jam-message;
                         jam-connected: root.jam-connected;
@@ -289,13 +338,6 @@ export component GroveWindow inherits Window {
                         jam-next => { root.jam-next(); }
                         jam-remove(a) => { root.jam-remove(a); }
                     }
-                    if root.page == 0 : NowPlayingPage {
-                        context-name: root.context-name;
-                        narrow: root.narrow;
-                        track-title: root.track-title;
-                        artist: root.artist;
-                        show-link <=> root.show-link;
-                    }
                     if root.page == 3 : LibraryPage {
                         page <=> root.page;
                         library-ready: root.library-ready;
@@ -323,6 +365,36 @@ export component GroveWindow inherits Window {
                     }
                     Rectangle { min-height: 10px; vertical-stretch: 1; background: transparent; }
                 }
+            }
+            if root.queue-docked : QueueDrawer {
+                width: 340px;
+                local-queue: root.local-queue;
+                tracks: root.tracks;
+                autoplay-next: root.autoplay-queue;
+                autoplay: root.autoplay;
+                can-play: root.authenticated && !root.following-guest;
+                current-title: root.track-title;
+                current-artist: root.artist;
+                current-cover: root.current-cover;
+                has-current: root.current-uri != "" || root.local-active;
+                related: root.related-tracks;
+                related-state: root.related-state;
+                related-note: root.related-note;
+                query <=> root.queue-query;
+                search-results: root.queue-search-results;
+                search-index: root.queue-search-index;
+                link <=> root.link;
+                can-add-link: root.library-ready;
+                message: root.message;
+                enqueue-link => { root.enqueue-link(); }
+                queue-edit(a, b) => { root.queue-edit(a, b); }
+                queue-move(a, b) => { root.queue-move(a, b); }
+                queue-filter(q) => { root.queue-filter(q); }
+                load-related => { root.load-related(); }
+                related-action(a, b) => { root.related-action(a, b); }
+                autoplay-action(a, b) => { root.autoplay-action(a, b); }
+                toggle-autoplay => { root.appearance("autoplay"); }
+                close => { root.queue-open = false; }
             }
         }
         PlayerBar {
@@ -358,6 +430,101 @@ export component GroveWindow inherits Window {
             seek(a) => { root.seek(a); }
             set-volume(a) => { root.set-volume(a); }
             switch-mini => { root.switch-mini(); }
+            current-hidden: root.current-hidden;
+            queue-open: root.queue-open;
+            lyrics-open: root.lyrics-open;
+            now-playing-open: root.now-playing-visible;
+            hide-current(h) => { root.hide-current(h); }
+            toggle-queue => { root.queue-open = !root.queue-open; }
+            toggle-lyrics => {
+                if root.lyrics-open { root.page = root.before-now-playing; }
+                else { root.now-playing-tab = 0; root.page = 0; }
+            }
+            open-now-playing => {
+                if root.now-playing-visible { root.page = root.before-now-playing; }
+                else { root.page = 0; }
+            }
+        }
+    }
+
+    // Immersive Now Playing covers the content area, beside the sidebar.
+    if root.now-playing-visible : NowPlayingView {
+        x: root.sidebar-wide ? 248px : 72px; y: 0px;
+        width: root.width - self.x - (root.queue-docked ? 340px : 0px);
+        height: root.height - root.player-height;
+        track-title: root.track-title;
+        artist: root.artist;
+        album: root.current-album;
+        context-name: root.context-name;
+        cover: root.local-active ? root.no-image : root.now-playing-cover.width > 0 ? root.now-playing-cover : root.current-cover;
+        backdrop: root.now-playing-backdrop;
+        playing: root.playing;
+        has-track: root.current-uri != "" || root.local-active;
+        current-saved: root.current-saved && !root.local-active;
+        current-hidden: root.current-hidden;
+        can-rate: root.library-ready && root.current-uri != "" && !root.local-active;
+        artist-enabled: root.library-ready && root.current-uri != "" && !root.local-active;
+        follow-art: root.accent-follows-art;
+        up-next: root.local-queue;
+        autoplay-next: root.autoplay ? root.autoplay-queue : [];
+        lyrics-lines: root.lyrics-lines;
+        lyrics-active: root.lyrics-active;
+        lyrics-synced: root.lyrics-synced;
+        lyrics-state: root.lyrics-state;
+        lyrics-status: root.lyrics-status;
+        lyrics-source: root.lyrics-source;
+        lyrics-seek-enabled: root.can-seek && !root.following-guest;
+        tab <=> root.now-playing-tab;
+        show-link <=> root.show-link;
+        link <=> root.link;
+        can-play-link: root.authenticated && !root.following-guest;
+        message: root.message;
+        play-link => { root.play-link(); }
+        song-action(a, b) => { root.song-action(a, root.current-uri); }
+        hide-current(h) => { root.hide-current(h); }
+        toggle-follow-art => { root.appearance("accent-art"); }
+        lyrics-seek(i) => { root.lyrics-seek(i); }
+        lyrics-retry => { root.lyrics-retry(); }
+        open-queue => { root.queue-open = true; }
+        close => { root.page = root.before-now-playing; }
+    }
+
+    // Narrower windows: the queue drawer slides over the content with a scrim.
+    if root.queue-open && !root.queue-docked && !root.mini : Rectangle {
+        x: 0px; y: 0px; width: root.width; height: root.height - root.player-height;
+        Rectangle {
+            background: GroveTheme.scrim;
+            TouchArea { clicked => { root.queue-open = false; } }
+        }
+        QueueDrawer {
+            x: parent.width - self.width; width: min(360px, parent.width - 40px); height: parent.height;
+            local-queue: root.local-queue;
+            tracks: root.tracks;
+            autoplay-next: root.autoplay-queue;
+            autoplay: root.autoplay;
+            can-play: root.authenticated && !root.following-guest;
+            current-title: root.track-title;
+            current-artist: root.artist;
+            current-cover: root.current-cover;
+            has-current: root.current-uri != "" || root.local-active;
+            related: root.related-tracks;
+            related-state: root.related-state;
+            related-note: root.related-note;
+            query <=> root.queue-query;
+            search-results: root.queue-search-results;
+            search-index: root.queue-search-index;
+            link <=> root.link;
+            can-add-link: root.library-ready;
+            message: root.message;
+            enqueue-link => { root.enqueue-link(); }
+            queue-edit(a, b) => { root.queue-edit(a, b); }
+            queue-move(a, b) => { root.queue-move(a, b); }
+            queue-filter(q) => { root.queue-filter(q); }
+            load-related => { root.load-related(); }
+            related-action(a, b) => { root.related-action(a, b); }
+            autoplay-action(a, b) => { root.autoplay-action(a, b); }
+            toggle-autoplay => { root.appearance("autoplay"); }
+            close => { root.queue-open = false; }
         }
     }
 }

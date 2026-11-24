@@ -4,6 +4,7 @@ pub mod account;
 pub mod events;
 pub mod jam_ui;
 pub mod playback_callbacks;
+pub mod shell;
 pub mod smoke;
 pub mod window;
 

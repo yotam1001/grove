@@ -1,0 +1,82 @@
+// Synced lyrics (#12): the current line is highlighted and followed; a timed
+// line can be clicked to seek. Lines come from LRCLIB through the Rust side.
+import { Button, ListView } from "std-widgets.slint";
+import { GroveLyricLine } from "model.slint";
+import { GroveTheme, GroveMotion } from "theme.slint";
+import { GroveChip, GroveEmpty, GroveEyebrow } from "components.slint";
+
+export component LyricsPanel inherits Rectangle {
+    in property <[GroveLyricLine]> lines;
+    in property <int> active: -1;
+    in property <bool> synced;
+    // 0 idle, 1 loading, 2 ready, 3 no lyrics found, 4 failed.
+    in property <int> state: 0;
+    in property <string> status;
+    in property <string> source;
+    in property <bool> seek-enabled: true;
+    in property <bool> compact: false;
+    callback seek-line(int);
+    callback retry;
+    private property <bool> following: true;
+    private property <length> row-height: root.compact ? 40px : 50px;
+    function follow() {
+        if root.following && root.synced && root.active >= 0 {
+            list.content-y = -max(0px, min(root.active * root.row-height - (list.visible-height - root.row-height) / 2, root.lines.length * root.row-height - list.visible-height));
+        }
+    }
+    changed active => { root.follow(); }
+    changed lines => { list.content-y = 0px; root.following = true; }
+    VerticalLayout {
+        spacing: 8px;
+        HorizontalLayout {
+            height: 32px; spacing: 8px;
+            GroveEyebrow { text: root.synced ? "SYNCED LYRICS" : "LYRICS"; horizontal-stretch: 1; }
+            if root.state == 2 && root.synced : GroveChip { text: root.following ? "Following" : "Follow"; icon: "check"; active: root.following; label: root.following ? "Stop following the current line" : "Follow the current line"; clicked => { root.following = !root.following; root.follow(); } }
+            if root.state == 4 || root.state == 3 : GroveChip { text: "Retry"; icon: "refresh"; clicked => { root.retry(); } }
+        }
+        if root.state != 2 : Rectangle {
+            vertical-stretch: 1;
+            GroveEmpty {
+                width: parent.width; height: parent.height;
+                icon: root.state == 3 ? "lyrics" : root.state == 4 ? "refresh" : "note";
+                heading: root.state == 1 ? "Loading lyrics…" : root.state == 3 ? "No lyrics found" : root.state == 4 ? "Couldn't load lyrics" : "Lyrics appear here";
+                detail: root.status;
+            }
+        }
+        list := ListView {
+            visible: root.state == 2;
+            vertical-stretch: 1;
+            accessible-label: "Song lyrics";
+            animate content-y { duration: GroveMotion.slow; easing: ease-out; }
+            changed visible-height => { root.follow(); }
+            for line[index] in root.lines : Rectangle {
+                height: root.row-height;
+                border-radius: GroveTheme.radius-md;
+                background: line-touch.has-hover && line.timed && root.seek-enabled ? GroveTheme.hover.with-alpha(0.6) : transparent;
+                animate background { duration: GroveMotion.fast; }
+                Text {
+                    x: 12px; width: parent.width - 24px; height: parent.height;
+                    text: line.text == "" ? "♪" : line.text;
+                    wrap: word-wrap; overflow: elide; vertical-alignment: center;
+                    font-size: index == root.active ? (root.compact ? 19px : 24px) : (root.compact ? 16px : 20px);
+                    font-weight: 700;
+                    color: index == root.active ? GroveTheme.text
+                        : root.synced && root.active >= 0 && index < root.active ? GroveTheme.muted.with-alpha(0.75)
+                        : root.synced ? GroveTheme.text.with-alpha(0.55) : GroveTheme.text.with-alpha(0.85);
+                    animate font-size, color { duration: GroveMotion.base; easing: ease-out; }
+                }
+                if index == root.active : Rectangle {
+                    x: 0px; y: (parent.height - self.height) / 2; width: 3px; height: parent.height * 0.5;
+                    border-radius: 1.5px; background: GroveTheme.accent;
+                }
+                line-touch := TouchArea {
+                    enabled: line.timed && root.seek-enabled;
+                    mouse-cursor: self.enabled ? pointer : default;
+                    line-button := Button { width: parent.width; height: parent.height; opacity: 0; text: ""; enabled: parent.enabled; accessible-label: "Seek to lyric: " + line.text; clicked => { root.seek-line(index); } }
+                }
+                Rectangle { border-radius: GroveTheme.radius-md; border-width: line-button.has-focus ? 2px : 0px; border-color: GroveTheme.focus; }
+            }
+        }
+        if root.source != "" && root.state == 2 : Text { text: root.source; color: GroveTheme.muted; font-size: 11px; overflow: elide; }
+    }
+}

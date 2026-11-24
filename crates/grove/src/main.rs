@@ -11,6 +11,7 @@ mod jam_sync;
 mod jam_transport;
 mod library;
 mod local;
+mod lyrics;
 mod media;
 mod preferences;
 mod spotify;
@@ -51,6 +52,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app::account::bind(&ui, &tx, &features);
     app::playback_callbacks::bind(&ui, &tx, &state, &features, &local);
     app::window::bind_mini(&ui);
+    let shell = app::shell::install(&ui, offline);
+    let lyrics = lyrics::install(
+        &ui,
+        if offline {
+            lyrics::fixture()
+        } else {
+            lyrics::lrclib()
+        },
+    );
 
     let poll = app::events::start(&ui, events, &state, &jam_tx, &tx, &features, &local);
     let media = media::install(&ui, state.clone(), offline);
@@ -83,6 +93,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     drop(feature_review);
     drop(local_review);
     drop(media);
+    drop(lyrics);
+    drop(shell);
     local_timer.stop();
     drop(local_timer);
     // Release all UI/timer sender clones before joining the worker.

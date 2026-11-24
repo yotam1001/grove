@@ -12,6 +12,8 @@ pub struct Preferences {
     pub local_history: bool,
     pub volume: f32,
     pub hidden: HashSet<String>,
+    /// The accent follows the current artwork colour.
+    pub accent_art: bool,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -23,6 +25,7 @@ impl Default for Preferences {
             local_history: false,
             volume: 35.0,
             hidden: HashSet::new(),
+            accent_art: false,
         }
     }
 }

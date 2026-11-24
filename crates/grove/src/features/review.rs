@@ -1,5 +1,6 @@
 //! Offline native feature review. No credentials, network, or preference writes.
 use super::*;
+use slint::Model;
 use std::path::PathBuf;
 fn track(id: char, title: &str) -> Value {
     json!({"uri":format!("spotify:track:{}",id.to_string().repeat(22)),"name":title,"artists":[{"name":"Review artist","uri":"spotify:artist:aaaaaaaaaaaaaaaaaaaaaa"}],"duration_ms":210_000})
@@ -108,7 +109,66 @@ pub fn start(
                 let remote=crate::jam::Playback{uri:"youtube:bcdefghijkl".into(),title:"Forest floor".into(),artist:"Review artist".into(),position_ms:12000,playing:true,sampled_at_ms:crate::jam::unix_ms()};
                 assert!(features.borrow_mut().paired_host(&ui,&remote).is_none(),"Recording choice leaked across rooms");let id=features.borrow().serial;
                 ui.set_jam_connected(false);features.borrow_mut().response(&ui,id,Ok(json!({"tracks":[track('d',"Late response")]})));assert_eq!(ui.get_jam_matches().row_count(),0);
-                features.borrow_mut().clear(&ui);eprintln!("PASS: native feature callbacks and confirmed cross-service matching, stale-song and room guards");slint::quit_event_loop().unwrap();
+                features.borrow_mut().clear(&ui);
+            },
+            // Shell (#41): the queue drawer (#27), Hide beside Like (#30) and related songs.
+            18=>{
+                ui.set_library_ready(true);ui.set_authenticated(true);ui.set_page(1);
+                let mut f=features.borrow_mut();
+                f.prefs.autoplay=true;ui.set_autoplay(true);
+                f.rotation=["Forest floor","Evening light","Afterglow","Quiet chord"].iter().zip(['a','b','c','d']).map(|(t,c)|Track::from_entity(&crate::web_api::entity(&track(c,t)))).collect();
+                ui.set_current_uri("spotify:track:aaaaaaaaaaaaaaaaaaaaaa".into());
+                f.queue=["Morning light","Roots and rivers","Soft and slow"].iter().zip(['e','f','g']).map(|(t,c)|Track::from_entity(&crate::web_api::entity(&track(c,t)))).collect();
+                f.render_queue(&ui);
+                assert_eq!(ui.get_autoplay_queue().row_count(),3,"Autoplay preview must skip the current song");
+                drop(f);
+                ui.invoke_queue_move(0,2);
+                let order:Vec<_>=ui.get_local_queue().iter().map(|t|t.title.to_string()).collect();
+                assert_eq!(order,["Roots and rivers","Soft and slow","Morning light"],"Drag reorder");
+                ui.invoke_queue_move(5,0);assert_eq!(ui.get_local_queue().row_count(),3);
+                ui.invoke_queue_filter("slow".into());
+                assert_eq!(ui.get_queue_search_results().row_count(),1);assert_eq!(ui.get_queue_search_index().row_data(0),Some(1));
+                ui.invoke_queue_filter("light".into());
+                assert_eq!(ui.get_queue_search_results().row_count(),2,"Search covers manual and autoplay sections");
+                assert_eq!(ui.get_queue_search_index().row_data(1),Some(-1));
+                ui.invoke_queue_filter("".into());
+                // Hide the playing song, then another: neither may autoplay.
+                ui.set_current_uri("spotify:track:bbbbbbbbbbbbbbbbbbbbbb".into());
+                ui.invoke_hide_current(true);
+                assert!(ui.get_current_hidden());assert!(features.borrow().prefs.hidden.contains("spotify:track:bbbbbbbbbbbbbbbbbbbbbb"));
+                ui.set_current_uri("spotify:track:cccccccccccccccccccccc".into());ui.invoke_hide_current(true);
+                ui.set_current_uri("spotify:track:aaaaaaaaaaaaaaaaaaaaaa".into());features.borrow().render_queue(&ui);
+                let autoplay:Vec<_>=ui.get_autoplay_queue().iter().map(|t|t.uri.to_string()).collect();
+                assert_eq!(autoplay,["spotify:track:dddddddddddddddddddddd"],"Hidden songs appeared in autoplay");
+                ui.invoke_autoplay_action("queue".into(),0);assert_eq!(ui.get_local_queue().row_count(),4);
+                let mut f=features.borrow_mut();f.queue.clear();f.render_queue(&ui);
+                let mut s=state::State::default();s.authenticated=true;s.active=true;s.play_request_id=Some(3);s.track=Track::from_entity(&crate::web_api::entity(&track('a',"Forest floor")));
+                f.ended(&ui,&s,Some(3));
+                assert_eq!(f.queue.first().map(|t|t.uri.as_str()),Some("spotify:track:dddddddddddddddddddddd"),"Autoplay picked a hidden song");
+                f.starting=None;f.queue.clear();f.render_queue(&ui);drop(f);
+                ui.set_current_uri("spotify:track:bbbbbbbbbbbbbbbbbbbbbb".into());ui.invoke_hide_current(false);assert!(!ui.get_current_hidden());
+                ui.set_current_uri("spotify:track:aaaaaaaaaaaaaaaaaaaaaa".into());
+                // Related songs: stale responses for an earlier song are ignored.
+                ui.invoke_load_related();assert_eq!(ui.get_related_state(),1);let stale=features.borrow().serial;
+                ui.set_current_uri("spotify:track:dddddddddddddddddddddd".into());
+                features.borrow_mut().response(&ui,stale,Ok(json!({"kind":"radio","tracks":[track('e',"Stale related")]})));
+                assert_eq!(ui.get_related_tracks().row_count(),0,"A stale related list replaced the current song's");
+                ui.invoke_load_related();let id=features.borrow().serial;
+                features.borrow_mut().response(&ui,id,Ok(json!({"kind":"radio","tracks":[track('d',"The current song"),track('e',"Related one"),track('f',"Related two")],"note":"More from this artist"})));
+                assert_eq!(ui.get_related_state(),2);assert_eq!(ui.get_related_tracks().row_count(),2,"Related must skip the current song");
+                ui.invoke_related_action("queue".into(),1);assert_eq!(ui.get_local_queue().row_data(0).unwrap().title,"Related two");
+                ui.set_message("".into());
+            },
+            19=>{
+                assert!(ui.get_queue_open(),"Page 1 did not open the queue drawer");assert_eq!(ui.get_page(),0);
+                capture(&ui,&out,"queue-drawer");
+                ui.set_queue_open(false);ui.set_page(5);
+                assert!(ui.get_can_go_back(),"History did not record pages");
+                ui.invoke_navigate_back();assert_eq!(ui.get_page(),0,"Back did not return to Now Playing");
+                assert!(ui.get_can_go_forward());ui.invoke_navigate_forward();assert_eq!(ui.get_page(),5);
+                ui.invoke_appearance("accent-art".into());assert!(ui.get_accent_follows_art());ui.invoke_appearance("accent-art".into());
+                features.borrow_mut().clear(&ui);
+                eprintln!("PASS: native feature callbacks, confirmed cross-service matching, stale-song and room guards, queue drawer, hide and related songs");slint::quit_event_loop().unwrap();
             },
             _=>{}
         }
