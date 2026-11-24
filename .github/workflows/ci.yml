@@ -105,10 +105,12 @@ jobs:
         shell: bash
         run: |
           name=grove-${{ matrix.package }}-portable
-          mkdir -p "dist/$name"
+          mkdir -p "dist/$name" .local
+          cargo metadata --locked --filter-platform "$(rustc -vV | sed -n 's/^host: //p')" --format-version 1 > .local/metadata.json
+          python3 scripts/generate-dependency-notices.py .local/metadata.json "dist/$name/DEPENDENCIES.md"
           cp target/release/grove-music LICENSE THIRD_PARTY_NOTICES.md "dist/$name/"
           cp docs/grove/PORTABLE.md "dist/$name/README.md"
-          (cd "dist/$name" && shasum -a 256 grove-music LICENSE THIRD_PARTY_NOTICES.md README.md > SHA256SUMS.txt)
+          (cd "dist/$name" && shasum -a 256 grove-music LICENSE THIRD_PARTY_NOTICES.md DEPENDENCIES.md README.md > SHA256SUMS.txt)
           tar -C dist -czf "dist/$name.tar.gz" "$name"
       - uses: actions/upload-artifact@v4
         with:
