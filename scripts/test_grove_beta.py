@@ -3,7 +3,6 @@ import hashlib
 import importlib.util
 import os
 from pathlib import Path
-import re
 import shutil
 import subprocess
 import tempfile
@@ -17,11 +16,9 @@ def load(name, path):
     spec.loader.exec_module(module)
     return module
 gate = load("grove_package", ROOT / "scripts/package-grove-beta.py")
-original = load("tide_install_tests", ROOT / "scripts/test_windows_install.py")
-HARNESS = original.HARNESS.replace("TIDE", "GROVE").replace("Tide", "Grove").replace("tide", "grove")
-HARNESS = HARNESS.replace("org.grovemusic.windows.preview", "org.grovemusic.windows.beta").replace("0.1.0-preview", "0.1.0-beta.1")
-HARNESS = HARNESS.replace("Install-Grove $package $root $links 'Chrome' ('a' * 32)", "Install-Grove $package $root $links 'None' ''")
-HARNESS = re.sub(r" -or \$global:Registry\['Chrome'\] -ne \$(?:release|previous|current)", "", HARNESS)
+# The PowerShell lifecycle harness is Grove-owned (ported from Tide) and runs
+# against scripts/grove-install-common.ps1 with faked registry and shortcuts.
+HARNESS = (ROOT / "scripts/grove_install_harness.ps1").read_text(encoding="utf-8")
 
 class PackageTests(unittest.TestCase):
     def fixture(self, path, extra=None, corrupt=False):
