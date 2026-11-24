@@ -298,7 +298,7 @@ mod tests {
 
     fn identity() -> Identity {
         Identity {
-            home: Some(r"C:\Users\Example".into()),
+            home: Some(r"D:\Profiles\Example".into()),
             user: Some("Example".into()),
         }
     }
@@ -318,7 +318,7 @@ mod tests {
             "\"https://api.spotify.com/v1/me/player?device_id=abc\" Bearer BQDf3x9 ",
             "token=AQB7d1e2f3g4h5i6j7k8l9m0n1o2p3q4 for listener@example.com ",
             "playing spotify:track:4uLU6hMCjMI75M1A2tKUQC by Evening Light from ",
-            r"C:\Users\Example\AppData\Roaming\GroveMusic and C:/users/example/x ",
+            r"D:\Profiles\Example\AppData\Roaming\GroveMusic and D:/profiles/example/x ",
             "user example\nlocation: /workspace/crates/grove/src/main.rs:10:5\n",
             "   3: grove_music::features::Features::response::h1a2b3c4d5e6f7a8b\n",
         );

@@ -4,16 +4,69 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
 jobs:
   windows:
+    name: Windows build, tests and offline review
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy,rustfmt
       - uses: Swatinem/rust-cache@v2
+      - run: python scripts/check_public_files.py
+      - name: Shared crates match the pinned Tide commit
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/sync_shared_crates.py check --upstream
       - run: cargo fmt --all -- --check
       - run: cargo test --locked --workspace
-      - run: cargo clippy --locked --package grove-music --package tide-jam --all-targets -- -D warnings
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Clippy for the playback crate's opt-in YouTube path
+        run: cargo clippy --locked --package tide-playback --features youtube --all-targets -- -D warnings
+      - run: cargo build --locked --package grove-music
+      - name: Offline review modes (no Spotify, credentials or preference writes)
+        shell: pwsh
+        run: |
+          $exe = 'target/debug/grove-music.exe'
+          foreach ($mode in @('--smoke-ui', '--review-features', '--review-ui')) {
+            $out = Join-Path 'review' $mode.TrimStart('-')
+            $run = Start-Process -FilePath $exe -ArgumentList @($mode, $out) -Wait -PassThru -NoNewWindow
+            if ($run.ExitCode -ne 0) { throw "$mode exited with $($run.ExitCode)" }
+          }
+      - name: Upload review screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grove-screenshots-${{ github.event.pull_request.number || github.sha }}
+          path: review/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Installer and package tests
+        run: python scripts/test_grove_beta.py
+
+  portability:
+    # Issue #11: Grove targets Windows today. This job tracks how far the
+    # Linux and macOS builds are and never blocks a merge.
+    name: Portability check (${{ matrix.os }}, non-blocking)
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Linux system libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libgtk-3-dev libxkbcommon-dev libfontconfig1-dev libdbus-1-dev pkg-config
+      - run: cargo check --locked --workspace --all-targets
+      - run: cargo test --locked --package tide-core --package tide-jam --package grove-music

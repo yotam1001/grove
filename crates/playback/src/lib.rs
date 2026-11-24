@@ -24,10 +24,10 @@ mod cookie_updates;
 mod prefetch;
 #[cfg(not(feature = "youtube"))]
 mod youtube_off;
-#[cfg(not(feature = "youtube"))]
-use youtube_off::{cookie_updates, prefetch};
 pub use cookie_updates::CookieUpdate;
 use cookie_updates::CookieUpdates;
+#[cfg(not(feature = "youtube"))]
+use youtube_off::{cookie_updates, prefetch};
 #[cfg(windows)]
 mod recovery;
 use prefetch::{Preparation, PreparedStream};
@@ -2071,12 +2071,17 @@ mod tests {
     #[cfg(not(feature = "youtube"))]
     #[test]
     fn youtube_sources_are_rejected_without_the_feature() {
-        for source in ["https://music.youtube.com/watch?v=abc", "https://youtu.be/abc"] {
+        for source in [
+            "https://music.youtube.com/watch?v=abc",
+            "https://youtu.be/abc",
+        ] {
             assert!(validate_source(source).is_err(), "{source}");
         }
-        assert!(!validate_source("https://youtube.com.example.org/watch?v=abc")
-            .unwrap()
-            .is_youtube);
+        assert!(
+            !validate_source("https://youtube.com.example.org/watch?v=abc")
+                .unwrap()
+                .is_youtube
+        );
         assert!(RuntimePaths::discover_yt_dlp().is_none());
     }
 
