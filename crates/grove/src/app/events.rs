@@ -124,6 +124,7 @@ pub fn start(
                         ui.set_library_note(String::new().into());
                     }
                     Event::Library { name, playlists } => {
+                        super::shell::set_playlist_artwork(&playlists);
                         ui.set_library_ready(true);
                         ui.set_feature_message("".into());
                         feature_state.borrow_mut().grant_ready(&ui);
