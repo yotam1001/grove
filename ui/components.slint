@@ -443,14 +443,14 @@ export component GroveSidebar inherits Rectangle {
         Rectangle { height: 6px; }
         GroveNavItem { text: "Home"; icon: "home"; wide: root.wide; active: root.page == 5; clicked => { root.page = 5; } }
         GroveNavItem { text: "Search"; icon: "search"; wide: root.wide; active: root.page == 6; clicked => { root.page = 6; } }
-        GroveNavItem { text: "Library"; icon: "library"; wide: root.wide; active: root.page == 3 && root.collection-uri == ""; clicked => { root.page = 3; } }
+        GroveNavItem { text: "Library"; icon: "library"; wide: root.wide; active: root.page == 3; clicked => { root.page = 3; } }
         GroveNavItem { text: "Shared jams"; icon: "people"; wide: root.wide; badge: root.jam-connected; active: root.page == 4; clicked => { root.page = 4; } }
         Rectangle { height: 14px; Rectangle { x: root.wide ? 8px : 6px; y: 7px; width: parent.width - 2 * self.x; height: 1px; background: GroveTheme.line; } }
         if root.wide : HorizontalLayout {
             height: 26px; padding-left: 10px;
             GroveEyebrow { text: "YOUR PLAYLISTS"; }
         }
-        if root.library-ready : GroveSidebarPlaylist { title: "Liked Songs"; subtitle: root.wide ? "Your saved songs" : ""; liked: true; wide: root.wide; active: root.page == 3 && root.collection-uri == "liked"; clicked => { root.open-collection("liked", "Liked Songs"); } }
+        if root.library-ready : GroveSidebarPlaylist { title: "Liked Songs"; subtitle: root.wide ? "Your saved songs" : ""; liked: true; wide: root.wide; active: root.page == 10 && root.collection-uri == "liked"; clicked => { root.open-collection("liked", "Liked Songs"); } }
         if root.library-ready : ListView {
             vertical-stretch: 1; min-height: 0px;
             accessible-label: "Your playlists";
@@ -458,7 +458,7 @@ export component GroveSidebar inherits Rectangle {
             for playlist[index] in root.playlists : GroveSidebarPlaylist {
                 title: playlist.title; subtitle: playlist.subtitle; wide: root.wide;
                 cover: index < root.playlist-covers.length ? root.playlist-covers[index] : root.no-cover;
-                active: root.page == 3 && root.collection-uri == playlist.uri;
+                active: root.page == 10 && root.collection-uri == playlist.uri;
                 clicked => { root.open-collection(playlist.uri, playlist.title); }
             }
         }

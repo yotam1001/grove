@@ -12,10 +12,6 @@ export component CollectionPage inherits VerticalLayout {
     callback feature-back;
     callback feature-next;
     spacing: 16px; vertical-stretch: 0;
-    HorizontalLayout {
-        alignment: start;
-        IconButton { icon: "left"; label: "Back"; clicked => { root.feature-back(); } }
-    }
     CollectionHeader {
         header: GroveBrowse.header; narrow: root.narrow; can-play: root.can-play;
         // Restricted playlists still play as a Spotify context.

@@ -79,6 +79,9 @@ impl Features {
             return;
         }
         self.remember(ui);
+        if self.reopen(ui, uri) {
+            return;
+        }
         let entry = self.browse.playlists.iter().find(|e| e.uri == uri).cloned();
         let owned = ui.get_owned_playlists().iter().any(|p| p.uri == uri);
         self.browse.header = match kind {

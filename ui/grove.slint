@@ -245,7 +245,7 @@ export component GroveWindow inherits Window {
                 account-name: root.account-name;
                 playlists: root.playlists;
                 playlist-covers: root.playlist-covers;
-                open-collection(uri, title) => { root.page = 3; root.browse(uri, title); }
+                open-collection(uri, title) => { root.browse(uri, title); }
             }
             ScrollView {
                 private property <int> shown-page: root.page;

@@ -20,6 +20,8 @@ pub(super) fn bind(ui: &GroveWindow, this: &Rc<RefCell<Features>>) {
             if f.view_page == page {
                 return;
             }
+            let left = f.view_page;
+            f.keep_visited(&ui, left);
             // Pages Grove opens itself set `view_page` first; this is the user
             // choosing a page, which starts a new Back history.
             f.view_page = page;

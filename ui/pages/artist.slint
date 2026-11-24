@@ -10,10 +10,6 @@ export component ArtistPage inherits VerticalLayout {
     in property <bool> narrow;
     callback feature-back;
     spacing: 18px; vertical-stretch: 0;
-    HorizontalLayout {
-        alignment: start;
-        IconButton { icon: "left"; label: "Back"; clicked => { root.feature-back(); } }
-    }
     CollectionHeader {
         header: GroveBrowse.header; narrow: root.narrow; can-play: root.can-play; has-rows: GroveBrowse.rows.length > 0;
         play-all(s) => { GroveBrowse.play-all(s); }

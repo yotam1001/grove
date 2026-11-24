@@ -48,6 +48,22 @@ impl Features {
             return;
         }
         self.remember(ui);
+        if self.reopen(ui, uri) {
+            if !others.is_empty() {
+                self.browse.credited = others
+                    .into_iter()
+                    .filter(|(_, u)| u != uri)
+                    .map(|(title, uri)| Entry {
+                        kind: "artist".into(),
+                        uri,
+                        title,
+                        ..Default::default()
+                    })
+                    .collect();
+                self.render(ui);
+            }
+            return;
+        }
         self.browse.header = Header {
             kind: "artist".into(),
             label: "ARTIST".into(),

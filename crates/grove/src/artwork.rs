@@ -5,7 +5,7 @@
 //! downloads still waiting, and each URL is requested at most once per session, so
 //! a visible cover is never evicted and re-fetched in a loop (Tide's jitter fix).
 //! Pages ask for at most `PAGE_LIMIT` covers; later rows keep their placeholder.
-use slint::{Image, Rgb8Pixel, SharedPixelBuffer};
+use slint::{Image, Rgb8Pixel, Rgba8Pixel, SharedPixelBuffer};
 use std::{
     collections::{HashMap, VecDeque},
     io::{Cursor, Read},
@@ -32,6 +32,9 @@ enum Attempt {
 
 pub struct Cache {
     entries: VecDeque<(String, Image)>,
+    /// Round artist portraits. The software renderer does not clip images to
+    /// a rounded frame, so the circle is cut into the pixels once.
+    round: HashMap<String, Image>,
     attempted: HashMap<String, Attempt>,
     tx: Option<mpsc::SyncSender<(String, u64)>>,
     rx: mpsc::Receiver<(String, u64, Option<Vec<u8>>)>,
@@ -72,6 +75,7 @@ impl Cache {
         });
         Self {
             entries: VecDeque::new(),
+            round: HashMap::new(),
             attempted: HashMap::new(),
             tx: (!offline).then_some(tx),
             rx,
@@ -121,6 +125,21 @@ impl Cache {
         }
         Image::default()
     }
+    /// `image` (the cover for `url`) cut to a circle with a soft edge.
+    pub fn round(&mut self, url: &str, image: Image) -> Image {
+        if image.size().width == 0 {
+            return image;
+        }
+        if let Some(round) = self.round.get(url) {
+            return round.clone();
+        }
+        let round = circle(&image);
+        if self.round.len() >= 64 {
+            self.round.clear();
+        }
+        self.round.insert(url.to_owned(), round.clone());
+        round
+    }
     /// A cached cover, without requesting it.
     pub fn peek(&self, url: &str) -> Image {
         self.entries
@@ -138,6 +157,7 @@ impl Cache {
     pub fn clear(&mut self) {
         self.generation.fetch_add(1, Ordering::Relaxed);
         self.entries.clear();
+        self.round.clear();
         self.attempted.clear();
     }
 }
@@ -154,6 +174,30 @@ fn image(pixels: &[u8]) -> Image {
     Image::from_rgb8(SharedPixelBuffer::<Rgb8Pixel>::clone_from_slice(
         pixels, SIDE, SIDE,
     ))
+}
+pub fn circle(image: &Image) -> Image {
+    let Some(source) = image.to_rgba8() else {
+        return image.clone();
+    };
+    let (width, height) = (source.width(), source.height());
+    let radius = width.min(height) as f32 / 2.0;
+    let (cx, cy) = (width as f32 / 2.0, height as f32 / 2.0);
+    let mut out = SharedPixelBuffer::<Rgba8Pixel>::new(width, height);
+    for (i, (dst, src)) in out
+        .make_mut_slice()
+        .iter_mut()
+        .zip(source.as_slice())
+        .enumerate()
+    {
+        let x = (i as u32 % width) as f32 + 0.5 - cx;
+        let y = (i as u32 / width) as f32 + 0.5 - cy;
+        let coverage = (radius - (x * x + y * y).sqrt() + 0.5).clamp(0.0, 1.0);
+        *dst = Rgba8Pixel {
+            a: (f32::from(src.a) * coverage) as u8,
+            ..*src
+        };
+    }
+    Image::from_rgba8(out)
 }
 fn allowed(input: &str) -> bool {
     url::Url::parse(input).is_ok_and(|url| {
@@ -262,5 +306,14 @@ mod tests {
         assert_eq!(requests.try_iter().count(), 1);
         cache.clear();
         assert!(cache.entries.is_empty());
+        // Artist portraits are cut to a circle: transparent corners, opaque centre.
+        let square = image(&vec![200; (SIDE * SIDE * 3) as usize]);
+        let round = cache
+            .round("https://i.scdn.co/image/a", square)
+            .to_rgba8()
+            .unwrap();
+        assert_eq!(round.as_slice()[0].a, 0);
+        let centre = (SIDE / 2 * SIDE + SIDE / 2) as usize;
+        assert_eq!(round.as_slice()[centre].a, 255);
     }
 }

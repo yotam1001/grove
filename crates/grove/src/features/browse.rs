@@ -120,6 +120,7 @@ pub(super) struct Cooldown {
 }
 
 /// What Back restores.
+#[derive(Clone)]
 pub(super) struct Snapshot {
     pub page: i32,
     pub rows: Vec<Track>,
@@ -229,6 +230,9 @@ pub(super) struct Browse {
     pub removal: Option<usize>,
     pub cooldown: Option<Cooldown>,
     pub stack: Vec<Snapshot>,
+    /// Recently left collection and artist pages, so Back/Forward reopen them
+    /// without another request.
+    pub visited: Vec<(Instant, Snapshot)>,
     pub batch: Vec<(u64, String)>,
     pub keys: HashMap<u64, String>,
     pub play_on_load: bool,
@@ -289,6 +293,7 @@ impl Browse {
             removal: None,
             cooldown: None,
             stack: vec![],
+            visited: vec![],
             batch: vec![],
             keys: HashMap::new(),
             play_on_load: false,
@@ -382,7 +387,14 @@ impl Features {
                 uri: e.uri.clone().into(),
                 title: e.title.clone().into(),
                 subtitle: e.subtitle.clone().into(),
-                cover: Self::cover(art, &e.image, budget),
+                cover: {
+                    let cover = Self::cover(art, &e.image, budget);
+                    if e.kind == "artist" {
+                        art.round(&e.image, cover)
+                    } else {
+                        cover
+                    }
+                },
                 index: e.index,
             })
             .collect()
@@ -487,7 +499,10 @@ impl Features {
             COLLECTION | ARTIST => {
                 let h = &self.browse.header;
                 let mut budget = 4;
-                let cover = Self::cover(&mut self.art, &h.image.clone(), &mut budget);
+                let mut cover = Self::cover(&mut self.art, &h.image.clone(), &mut budget);
+                if h.kind == "artist" {
+                    cover = self.art.round(&h.image.clone(), cover);
+                }
                 let old = g.get_header();
                 let header = GroveHeader {
                     kind: h.kind.clone().into(),
@@ -692,12 +707,8 @@ impl Features {
     }
 
     /// Back stack: remember the page being left (except transient duplicates).
-    pub(super) fn push_snapshot(&mut self, ui: &GroveWindow) {
-        let page = ui.get_page();
-        if page == 7 && self.browse.stack.last().is_some_and(|s| s.page == 7) {
-            return;
-        }
-        self.browse.stack.push(Snapshot {
+    fn snapshot(&self, ui: &GroveWindow, page: i32) -> Snapshot {
+        Snapshot {
             page,
             rows: self.rows.clone(),
             positions: self.browse.positions.clone(),
@@ -712,10 +723,75 @@ impl Features {
                 ui.get_collection_title(),
                 ui.get_collection_owned(),
             ),
-        });
+        }
+    }
+
+    pub(super) fn push_snapshot(&mut self, ui: &GroveWindow) {
+        let page = ui.get_page();
+        if page == 7 && self.browse.stack.last().is_some_and(|s| s.page == 7) {
+            return;
+        }
+        self.keep_visited(ui, page);
+        let snapshot = self.snapshot(ui, page);
+        self.browse.stack.push(snapshot);
         if self.browse.stack.len() > 12 {
             self.browse.stack.remove(0);
         }
+    }
+
+    /// Remembers a loaded collection or artist page being left.
+    pub(super) fn keep_visited(&mut self, ui: &GroveWindow, page: i32) {
+        let uri = self.browse.header.uri.clone();
+        if !matches!(page, COLLECTION | ARTIST)
+            || uri.is_empty()
+            || ui.get_feature_busy()
+            || (self.rows.is_empty() && self.browse.artist_shelves.is_empty())
+        {
+            return;
+        }
+        let snapshot = self.snapshot(ui, page);
+        self.browse.visited.retain(|(_, s)| s.header.uri != uri);
+        self.browse.visited.push((Instant::now(), snapshot));
+        if self.browse.visited.len() > 8 {
+            self.browse.visited.remove(0);
+        }
+    }
+
+    /// Reopens a page left in the last ten minutes. Returns false to load it.
+    pub(super) fn reopen(&mut self, ui: &GroveWindow, uri: &str) -> bool {
+        let Some(index) = self.browse.visited.iter().position(|(at, s)| {
+            s.header.uri == uri && at.elapsed() < std::time::Duration::from_secs(600)
+        }) else {
+            return false;
+        };
+        let (_, s) = self.browse.visited.remove(index);
+        self.epoch += 1;
+        self.view_page = s.page;
+        self.rows = s.rows;
+        self.browse.positions = s.positions;
+        self.source = s.source;
+        self.browse.header = s.header;
+        self.browse.artist_shelves = s.shelves;
+        self.browse.credited = s.credited;
+        let (curi, title, owned) = s.collection;
+        ui.set_collection_uri(curi);
+        ui.set_collection_title(title);
+        ui.set_collection_owned(owned);
+        ui.set_page(s.page);
+        ui.set_feature_title(s.title);
+        ui.set_feature_more(s.more);
+        ui.set_feature_busy(false);
+        ui.set_feature_message("".into());
+        self.render(ui);
+        if std::mem::take(&mut self.browse.play_on_load) && !self.rows.is_empty() {
+            let weak = ui.as_weak();
+            slint::Timer::single_shot(std::time::Duration::ZERO, move || {
+                if let Some(ui) = weak.upgrade() {
+                    ui.invoke_play_selection(false);
+                }
+            });
+        }
+        true
     }
 
     pub(super) fn reset_browse(&mut self, ui: &GroveWindow) {

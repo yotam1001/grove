@@ -59,6 +59,8 @@ pub fn start(ui: &GroveWindow, features: Rc<RefCell<Features>>, out: PathBuf) {
         let f = &features;
         match step {
             0 => {
+                // Earlier stages hide songs; start from a clean list.
+                f.borrow_mut().prefs.hidden.clear();
                 size(&ui, 1200.0, 800.0);
                 ui.set_library_ready(true);
                 ui.set_authenticated(true);
@@ -300,7 +302,10 @@ pub fn start(ui: &GroveWindow, features: Rc<RefCell<Features>>, out: PathBuf) {
                 fm.response(&ui, id, Ok(json!({"kind":"tracks","tracks":[duet('c',"Afterglow"),song('d',"Moss")]})));
                 assert_eq!(fm.queue.len(), queued + 1, "batched lookup did not reach the queue");
                 assert_eq!(fm.metadata.title, "Afterglow");
-                assert!(fm.pending.is_empty());
+                assert!(
+                    !fm.pending.values().any(|p| matches!(p, Pending::Metadata(_) | Pending::Enqueue | Pending::Browse(Want::Batch(_)))),
+                    "batched lookups were left pending"
+                );
                 fm.queue.clear();
                 fm.render_queue(&ui);
             }

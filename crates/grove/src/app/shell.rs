@@ -1,7 +1,7 @@
 //! The app shell (#41): back/forward history, sidebar playlist artwork and the
 //! colour Grove derives from the current cover (#13).
 use crate::GroveWindow;
-use slint::{ComponentHandle, Model, ModelRc, VecModel};
+use slint::{ComponentHandle, ModelRc, VecModel};
 use std::{cell::RefCell, rc::Rc};
 
 thread_local! {
@@ -101,15 +101,15 @@ impl History {
 
 fn place(ui: &GroveWindow) -> Place {
     let page = ui.get_page();
-    let (collection, title) = if page == 3 && !ui.get_collection_uri().is_empty() {
-        (
-            ui.get_collection_uri().into(),
-            ui.get_collection_title().into(),
-        )
-    } else if page == 7 {
-        (String::new(), ui.get_feature_title().into())
-    } else {
-        (String::new(), String::new())
+    // Collection (10) and artist (11) pages are identified by what they show;
+    // the title is filled in later, so it is not part of the identity.
+    let (collection, title) = match page {
+        10 | 11 => (
+            ui.global::<crate::GroveBrowse>().get_header().uri.into(),
+            String::new(),
+        ),
+        7 => (String::new(), ui.get_feature_title().into()),
+        _ => (String::new(), String::new()),
     };
     Place {
         page,
@@ -118,28 +118,26 @@ fn place(ui: &GroveWindow) -> Place {
     }
 }
 
+/// The browse kind that reopens a collection or artist place.
+fn browse_kind(target: &Place) -> &'static str {
+    match target.collection.as_str() {
+        _ if target.page == 11 => "artist",
+        "liked" => "liked",
+        "mix" => "mix",
+        uri if uri.starts_with("spotify:album:") => "album",
+        _ => "playlist",
+    }
+}
+
 fn go(ui: &GroveWindow, target: &Place) {
-    if target.page == 3 && !target.collection.is_empty() {
-        if ui.get_page() == 3 {
-            ui.invoke_browse(
-                target.collection.clone().into(),
-                target.title.clone().into(),
-            );
-        } else {
-            ui.set_collection_uri(target.collection.clone().into());
-            ui.set_collection_title(target.title.clone().into());
-            ui.set_collection_owned(
-                ui.get_owned_playlists()
-                    .iter()
-                    .any(|p| p.uri.as_str() == target.collection),
-            );
-            ui.set_page(3);
-        }
+    if matches!(target.page, 10 | 11) && !target.collection.is_empty() {
+        // Reopening uses the page Grove kept from the visit, or loads it again.
+        ui.global::<crate::GroveBrowse>().invoke_open(
+            browse_kind(target).into(),
+            target.collection.clone().into(),
+            target.title.clone().into(),
+        );
     } else {
-        if target.page == 3 {
-            ui.set_collection_uri("".into());
-            ui.set_collection_title("".into());
-        }
         ui.set_page(target.page);
     }
 }
@@ -456,6 +454,25 @@ mod tests {
         h.observe(at(6));
         h.observe(at(4));
         assert!(!h.can_forward());
+    }
+
+    #[test]
+    fn collection_and_artist_places_reopen_with_the_right_kind() {
+        let place = |page, uri: &str| Place {
+            page,
+            collection: uri.into(),
+            title: String::new(),
+        };
+        assert_eq!(browse_kind(&place(10, "liked")), "liked");
+        assert_eq!(browse_kind(&place(10, "mix")), "mix");
+        assert_eq!(browse_kind(&place(10, "spotify:album:x")), "album");
+        assert_eq!(browse_kind(&place(10, "spotify:playlist:x")), "playlist");
+        assert_eq!(browse_kind(&place(11, "spotify:artist:x")), "artist");
+        let mut h = History::default();
+        h.observe(at(5));
+        h.observe(place(10, "spotify:album:x"));
+        h.observe(place(11, "spotify:artist:x"));
+        assert_eq!(h.back(), Some(place(10, "spotify:album:x")));
     }
 
     #[test]

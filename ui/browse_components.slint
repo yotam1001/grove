@@ -1,7 +1,8 @@
 // Cards, shelves, headers and the track table for Grove's browse pages.
 // Covers keep a fixed frame and placeholder, so artwork arriving later never
 // moves the layout.
-import { GroveTheme } from "theme.slint";
+import { GroveTheme, GroveMotion } from "theme.slint";
+import { GroveLine } from "components.slint";
 import { GroveCard, GroveShelf, GroveRow, GroveHeader, GroveBrowse } from "browse_model.slint";
 
 export component BrowseIcon inherits Path {
@@ -46,7 +47,7 @@ export component CoverArt inherits Rectangle {
         kind: root.kind == "track" ? "note" : root.kind;
         x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
         width: parent.width * 0.36; height: self.width;
-        ink: root.generated ? #ffffff : GroveTheme.muted;
+        ink: #ffffff.with-alpha(root.generated ? 1 : 0.7);
         fill: root.kind == "liked" ? #ffffff : transparent;
     }
     if root.source.width > 0 && !root.generated : Image {
@@ -65,10 +66,10 @@ export component IconButton inherits Rectangle {
     callback clicked;
     width: 36px; height: self.width;
     border-radius: self.height / 2;
-    background: !root.enabled ? transparent : root.filled ? (touch.pressed ? GroveTheme.accent-pressed : GroveTheme.accent) : touch.pressed ? GroveTheme.pressed : touch.has-hover ? GroveTheme.selected : transparent;
+    background: !root.enabled ? transparent : root.filled ? (touch.pressed ? GroveTheme.accent-pressed : GroveTheme.accent) : touch.pressed ? GroveTheme.pressed : touch.has-hover ? GroveTheme.hover : transparent;
     border-width: focus.has-focus ? 2px : 0px;
     border-color: GroveTheme.accent;
-    animate background { duration: 110ms; }
+    animate background { duration: GroveMotion.fast; }
     accessible-role: button;
     accessible-label: root.label;
     accessible-action-default => { if root.enabled { root.clicked(); } }
@@ -102,10 +103,10 @@ export component PillButton inherits Rectangle {
     vertical-stretch: 0;
     min-width: pill-layout.min-width;
     border-radius: self.height / 2;
-    background: !root.enabled ? GroveTheme.selected : root.primary || root.selected ? (touch.pressed ? GroveTheme.accent-pressed : GroveTheme.accent) : touch.pressed ? GroveTheme.pressed : touch.has-hover ? GroveTheme.selected : transparent;
+    background: !root.enabled ? GroveTheme.hover : root.primary || root.selected ? (touch.pressed ? GroveTheme.accent-pressed : GroveTheme.accent) : touch.pressed ? GroveTheme.pressed : touch.has-hover ? GroveTheme.hover : transparent;
     border-width: focus.has-focus ? 2px : root.primary || root.selected ? 0px : 1px;
-    border-color: focus.has-focus ? GroveTheme.text : GroveTheme.border;
-    animate background { duration: 110ms; }
+    border-color: focus.has-focus ? GroveTheme.focus : GroveTheme.border;
+    animate background { duration: GroveMotion.fast; }
     accessible-role: button;
     accessible-label: root.text;
     accessible-action-default => { if root.enabled { root.clicked(); } }
@@ -140,9 +141,9 @@ export component CardTile inherits Rectangle {
     callback open(GroveCard);
     callback play(GroveCard);
     height: self.width + 62px;
-    border-radius: 10px;
-    background: touch.has-hover ? GroveTheme.selected : transparent;
-    animate background { duration: 120ms; }
+    border-radius: GroveTheme.radius-md;
+    background: touch.has-hover ? GroveTheme.hover : transparent;
+    animate background { duration: GroveMotion.fast; }
     accessible-role: button;
     accessible-label: root.card.title;
     accessible-description: root.card.subtitle;
@@ -153,22 +154,22 @@ export component CardTile inherits Rectangle {
             x: 8px; y: touch.has-hover ? 6px : 8px;
             width: root.width - 16px; height: self.width;
             source: root.card.cover; kind: root.card.kind;
-            animate y { duration: 140ms; easing: ease-out; }
+            animate y { duration: GroveMotion.fast; easing: ease-out; }
         }
         if touch.has-hover && root.can-play && root.card.kind != "artist" : IconButton {
             x: art.x + art.width - self.width - 8px; y: art.y + art.height - self.height - 8px;
             width: 42px; icon: "play"; filled: true; label: "Play " + root.card.title;
             clicked => { root.play(root.card); }
         }
-        Text {
-            x: 10px; y: art.y + art.height + 8px; width: root.width - 20px;
-            text: root.card.title; color: GroveTheme.text; font-size: 14px; font-weight: 600;
-            overflow: elide; horizontal-alignment: root.card.kind == "artist" ? center : left;
+        GroveLine {
+            x: 10px; y: art.y + art.height + 6px; width: root.width - 20px;
+            text: root.card.title; ink: GroveTheme.text; font-size: 14px; font-weight: 600;
+            align: root.card.kind == "artist" ? center : left;
         }
-        Text {
-            x: 10px; y: art.y + art.height + 29px; width: root.width - 20px;
-            text: root.card.subtitle; color: GroveTheme.muted; font-size: 12px;
-            overflow: elide; horizontal-alignment: root.card.kind == "artist" ? center : left;
+        GroveLine {
+            x: 10px; y: art.y + art.height + 27px; width: root.width - 20px;
+            text: root.card.subtitle; ink: GroveTheme.muted; font-size: 12px;
+            align: root.card.kind == "artist" ? center : left;
         }
     }
 }
@@ -199,7 +200,7 @@ export component Shelf inherits VerticalLayout {
             x: (i - root.first) * root.step; y: 0px;
             width: root.card-width;
             card: card; can-play: root.can-play;
-            animate x { duration: 240ms; easing: ease-out; }
+            animate x { duration: GroveMotion.base; easing: ease-out; }
             open(c) => { root.open(c); }
             play(c) => { root.play(c); }
         }
@@ -235,10 +236,10 @@ export component PickCard inherits Rectangle {
     callback play(GroveCard);
     callback more(GroveCard);
     height: 60px;
-    border-radius: 8px;
-    background: touch.has-hover ? GroveTheme.pressed : GroveTheme.selected;
+    border-radius: GroveTheme.radius-sm;
+    background: touch.has-hover ? GroveTheme.hover : GroveTheme.raised;
     clip: true;
-    animate background { duration: 110ms; }
+    animate background { duration: GroveMotion.fast; }
     accessible-role: button;
     accessible-label: "Play " + root.card.title;
     accessible-action-default => { root.play(root.card); }
@@ -246,13 +247,13 @@ export component PickCard inherits Rectangle {
         enabled: root.can-play;
         clicked => { root.play(root.card); }
         CoverArt { x: 0px; y: 0px; width: root.height; height: root.height; border-radius: 0px; source: root.card.cover; kind: "track"; }
-        Text {
-            x: root.height + 12px; y: 10px; width: root.width - root.height - 64px;
-            text: root.card.title; color: root.playing ? GroveTheme.accent : GroveTheme.text; font-size: 14px; font-weight: 600; overflow: elide;
+        GroveLine {
+            x: root.height + 12px; y: 9px; width: root.width - root.height - 64px;
+            text: root.card.title; ink: root.playing ? GroveTheme.accent : GroveTheme.text; font-size: 14px; font-weight: 600;
         }
-        Text {
-            x: root.height + 12px; y: 32px; width: root.width - root.height - 64px;
-            text: root.card.subtitle; color: GroveTheme.muted; font-size: 12px; overflow: elide;
+        GroveLine {
+            x: root.height + 12px; y: 31px; width: root.width - root.height - 64px;
+            text: root.card.subtitle; ink: GroveTheme.muted; font-size: 12px;
         }
         if touch.has-hover && root.can-play : IconButton {
             x: root.width - self.width - 10px; y: (root.height - self.height) / 2;
@@ -271,7 +272,7 @@ export component HeroCard inherits Rectangle {
     callback play;
     callback shuffle;
     height: root.narrow ? 172px : 228px;
-    border-radius: 16px;
+    border-radius: GroveTheme.radius-lg;
     clip: true;
     background: GroveTheme.light ? @linear-gradient(90deg, #cfeedd 0%, #f2f7f3 100%) : @linear-gradient(90deg, #15492f 0%, #1d2022 100%);
     HorizontalLayout {
@@ -280,8 +281,8 @@ export component HeroCard inherits Rectangle {
         VerticalLayout {
             alignment: center; spacing: root.narrow ? 4px : 8px;
             Text { text: root.label; color: GroveTheme.accent; font-size: 12px; font-weight: 700; letter-spacing: 1px; overflow: elide; }
-            Text { text: root.card.title; color: GroveTheme.text; font-size: root.narrow ? 22px : 34px; font-weight: 750; overflow: elide; }
-            Text { text: root.card.subtitle; color: GroveTheme.secondary; font-size: 14px; overflow: elide; }
+            GroveLine { text: root.card.title; ink: GroveTheme.text; font-size: root.narrow ? 22px : 34px; font-weight: 750; }
+            GroveLine { text: root.card.subtitle; ink: GroveTheme.secondary; font-size: 14px; }
             HorizontalLayout {
                 spacing: 10px; alignment: start; padding-top: root.narrow ? 4px : 10px;
                 PillButton { text: "Play"; icon: "play"; primary: true; enabled: root.can-play; clicked => { root.play(); } }
@@ -300,7 +301,7 @@ export component CollectionHeader inherits Rectangle {
     callback play-all(bool);
     callback follow;
     min-height: header-layout.min-height;
-    border-radius: 16px;
+    border-radius: GroveTheme.radius-lg;
     background: GroveTheme.light ? @linear-gradient(180deg, #d6eee0 0%, #f4f7f4 100%) : @linear-gradient(180deg, #17402b 0%, #141617 100%);
     header-layout := HorizontalLayout {
         padding: root.narrow ? 16px : 24px; spacing: root.narrow ? 16px : 26px;
@@ -308,8 +309,8 @@ export component CollectionHeader inherits Rectangle {
         VerticalLayout {
             alignment: end; spacing: root.narrow ? 4px : 8px;
             Text { text: root.header.label; color: GroveTheme.secondary; font-size: 12px; font-weight: 700; letter-spacing: 1px; }
-            Text { text: root.header.title; color: GroveTheme.text; font-size: root.narrow ? 24px : 44px; font-weight: 800; overflow: elide; }
-            Text { text: root.header.subtitle; color: GroveTheme.secondary; font-size: 13px; overflow: elide; }
+            GroveLine { text: root.header.title; ink: GroveTheme.text; font-size: root.narrow ? 24px : 44px; font-weight: 800; }
+            GroveLine { text: root.header.subtitle; ink: GroveTheme.secondary; font-size: 13px; }
             HorizontalLayout {
                 spacing: 12px; alignment: start; padding-top: root.narrow ? 6px : 12px;
                 IconButton { width: root.narrow ? 44px : 52px; icon: "play"; filled: true; label: "Play " + root.header.title; enabled: root.can-play && root.has-rows; clicked => { root.play-all(false); } }
@@ -334,9 +335,9 @@ export component TrackRow inherits Rectangle {
     private property <bool> menu: false;
     private property <bool> choosing: GroveBrowse.choice-row == root.item.index && root.menu;
     height: root.menu ? 104px : 56px;
-    border-radius: 8px;
-    background: touch.has-hover || root.menu ? GroveTheme.selected : transparent;
-    animate background { duration: 100ms; }
+    border-radius: GroveTheme.radius-sm;
+    background: root.menu ? GroveTheme.selected : touch.has-hover ? GroveTheme.hover : transparent;
+    animate background { duration: GroveMotion.fast; }
     touch := TouchArea {
         double-clicked => { if root.can-play { root.action("play", root.item.index); } }
         HorizontalLayout {
@@ -352,10 +353,13 @@ export component TrackRow inherits Rectangle {
             // so every row lines up with the header.
             VerticalLayout {
                 horizontal-stretch: 3; preferred-width: 0px; min-width: 0px; alignment: center; spacing: 3px;
-                Text { text: root.item.title; color: root.item.playing ? GroveTheme.accent : GroveTheme.text; font-size: 14px; font-weight: 500; overflow: elide; }
-                Text { text: root.item.artist; color: GroveTheme.muted; font-size: 12px; overflow: elide; }
+                GroveLine { text: root.item.title; ink: root.item.playing ? GroveTheme.accent : GroveTheme.text; font-size: 14px; font-weight: 500; }
+                GroveLine { text: root.item.artist; ink: GroveTheme.muted; font-size: 12px; }
             }
-            if root.show-album : Text { horizontal-stretch: 2; preferred-width: 0px; min-width: 0px; text: root.item.album; color: GroveTheme.muted; font-size: 13px; vertical-alignment: center; overflow: elide; }
+            if root.show-album : Rectangle {
+                horizontal-stretch: 2; preferred-width: 0px; min-width: 0px;
+                GroveLine { y: (parent.height - self.height) / 2; width: parent.width; text: root.item.album; ink: GroveTheme.muted; font-size: 13px; }
+            }
             IconButton {
                 y: 10px; width: 36px; icon: root.item.saved ? "heart-filled" : "heart"; active: root.item.saved;
                 label: root.item.saved ? "Remove from Liked Songs" : "Save to Liked Songs";
@@ -427,9 +431,9 @@ export component ListEntry inherits Rectangle {
     in property <GroveCard> card;
     callback open(GroveCard);
     height: 64px;
-    border-radius: 8px;
-    background: touch.has-hover ? GroveTheme.selected : transparent;
-    animate background { duration: 100ms; }
+    border-radius: GroveTheme.radius-sm;
+    background: touch.has-hover ? GroveTheme.hover : transparent;
+    animate background { duration: GroveMotion.fast; }
     accessible-role: button;
     accessible-label: root.card.title;
     accessible-description: root.card.subtitle;
@@ -442,8 +446,8 @@ export component ListEntry inherits Rectangle {
             CoverArt { width: 48px; height: 48px; source: root.card.cover; kind: root.card.kind; }
             VerticalLayout {
                 alignment: center; spacing: 3px; horizontal-stretch: 1;
-                Text { text: root.card.title; color: GroveTheme.text; font-size: 15px; font-weight: 500; overflow: elide; }
-                Text { text: root.card.subtitle; color: GroveTheme.muted; font-size: 12px; overflow: elide; }
+                GroveLine { text: root.card.title; ink: GroveTheme.text; font-size: 15px; font-weight: 500; }
+                GroveLine { text: root.card.subtitle; ink: GroveTheme.muted; font-size: 12px; }
             }
             Rectangle {
                 width: 16px;
@@ -464,7 +468,7 @@ export component PillSearch inherits Rectangle {
     border-radius: self.height / 2;
     background: GroveTheme.surface;
     border-width: input.has-focus ? 2px : 1px;
-    border-color: input.has-focus ? GroveTheme.accent : touch.has-hover ? GroveTheme.muted : GroveTheme.border;
+    border-color: input.has-focus ? GroveTheme.focus : touch.has-hover ? GroveTheme.muted : GroveTheme.border;
     forward-focus: input;
     touch := TouchArea { mouse-cursor: MouseCursor.text; clicked => { input.focus(); } }
     HorizontalLayout {
@@ -498,7 +502,7 @@ export component ChipTabs inherits HorizontalLayout {
 // Web API cooldown with the remaining time and a Retry that honours Retry-After.
 export component CooldownBanner inherits Rectangle {
     min-height: banner-layout.min-height;
-    border-radius: 10px;
+    border-radius: GroveTheme.radius-md;
     background: GroveTheme.light ? #fbf1df : #2b2418;
     border-width: 1px;
     border-color: GroveTheme.warning.with-alpha(0.5);
@@ -520,5 +524,5 @@ export component CooldownBanner inherits Rectangle {
 
 // A heading row used by pages for sections.
 export component SectionTitle inherits Text {
-    color: GroveTheme.text; font-size: 20px; font-weight: 650; overflow: elide;
+    color: GroveTheme.text; font-size: GroveTheme.type-title; font-weight: 700; overflow: elide;
 }
