@@ -51,22 +51,68 @@ jobs:
       - name: Installer and package tests
         run: python scripts/test_grove_beta.py
 
-  portability:
-    # Issue #11: Grove targets Windows today. This job tracks how far the
-    # Linux and macOS builds are and never blocks a merge.
-    name: Portability check (${{ matrix.os }}, non-blocking)
+  portable:
+    # Issue #11: Linux and macOS build, test, run the offline review modes and
+    # package a portable preview. Real-hardware checks (sign-in, Premium audio,
+    # media keys, mpv local files) are still pending, so this never blocks a merge.
+    name: ${{ matrix.name }} build, tests, review and portable package (non-blocking)
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
     continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            name: Linux
+            package: linux-x86_64
+          - os: macos-latest
+            name: macOS
+            package: macos-arm64
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: Linux system libraries
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libgtk-3-dev libxkbcommon-dev libfontconfig1-dev libdbus-1-dev pkg-config
-      - run: cargo check --locked --workspace --all-targets
-      - run: cargo test --locked --package tide-core --package tide-jam --package grove-music
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libxkbcommon-dev libxkbcommon-x11-0 libfontconfig1-dev             libdbus-1-dev libx11-xcb1 libxcursor1 libxrandr2 libxi6 libgl1 pkg-config xvfb fonts-dejavu-core
+      - run: cargo test --locked --workspace
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - run: cargo build --locked --release --package grove-music
+      - name: Offline review modes (no Spotify, credentials or preference writes)
+        shell: bash
+        run: |
+          exe=target/release/grove-music
+          run() { if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 1600x1000x24" "$@"; else "$@"; fi; }
+          for mode in --smoke-ui --review-features --review-ui; do
+            echo "::group::$mode"
+            run "$exe" "$mode" "review/${mode#--}"
+            echo "::endgroup::"
+          done
+      - name: Upload review screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grove-screenshots-${{ matrix.package }}-${{ github.event.pull_request.number || github.sha }}
+          path: review/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Portable package
+        shell: bash
+        run: |
+          name=grove-${{ matrix.package }}-portable
+          mkdir -p "dist/$name"
+          cp target/release/grove-music LICENSE THIRD_PARTY_NOTICES.md "dist/$name/"
+          cp docs/grove/PORTABLE.md "dist/$name/README.md"
+          (cd "dist/$name" && shasum -a 256 grove-music LICENSE THIRD_PARTY_NOTICES.md README.md > SHA256SUMS.txt)
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: grove-${{ matrix.package }}-portable-${{ github.event.pull_request.number || github.sha }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 14

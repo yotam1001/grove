@@ -227,8 +227,33 @@ fn open_browser(url: &str) -> Result<(), String> {
                     .map_err(|_| "Could not open Zen for Spotify approval.".into());
             }
         }
+        tide_windows::open_web_page(url)
     }
-    tide_windows::open_web_page(url)
+    // The URL is Grove's own https authorize link, passed as one argument.
+    #[cfg(target_os = "macos")]
+    let opener = "open";
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let opener = "xdg-open";
+    #[cfg(unix)]
+    {
+        if !url.starts_with("https://") {
+            return Err("Refusing to open a non-https sign-in link.".into());
+        }
+        std::process::Command::new(opener)
+            .arg(url)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            // Reap the opener so it does not linger as a zombie.
+            .map(|mut child| drop(std::thread::spawn(move || child.wait())))
+            .map_err(|_| format!("Could not open a browser for Spotify approval ({opener})."))
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        let _ = url;
+        Err("Opening a browser is not supported on this platform.".into())
+    }
 }
 
 #[cfg(test)]
