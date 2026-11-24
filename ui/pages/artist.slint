@@ -1,0 +1,42 @@
+// Artist pages (11): a hero header with Play/Shuffle and Follow, popular songs,
+// then album and single shelves.
+import { GroveTheme } from "../theme.slint";
+import { GroveBrowse } from "../browse_model.slint";
+import { CollectionHeader, CooldownBanner, IconButton, PillButton, SectionTitle, Shelf, TrackTable } from "../browse_components.slint";
+
+export component ArtistPage inherits VerticalLayout {
+    in property <bool> busy;
+    in property <bool> can-play;
+    in property <bool> narrow;
+    callback feature-back;
+    spacing: 18px; vertical-stretch: 0;
+    HorizontalLayout {
+        alignment: start;
+        IconButton { icon: "left"; label: "Back"; clicked => { root.feature-back(); } }
+    }
+    CollectionHeader {
+        header: GroveBrowse.header; narrow: root.narrow; can-play: root.can-play; has-rows: GroveBrowse.rows.length > 0;
+        play-all(s) => { GroveBrowse.play-all(s); }
+        follow => { GroveBrowse.follow(); }
+    }
+    if GroveBrowse.credited.length > 0 : HorizontalLayout {
+        spacing: 8px; alignment: start;
+        Text { text: "Also on this song"; color: GroveTheme.muted; font-size: 12px; vertical-alignment: center; }
+        for artist in GroveBrowse.credited : PillButton { text: artist.title; icon: "artist"; clicked => { GroveBrowse.open("artist", artist.uri, artist.title); } }
+    }
+    if GroveBrowse.cooldown-visible : CooldownBanner {}
+    if GroveBrowse.rows.length > 0 : VerticalLayout {
+        spacing: 8px;
+        SectionTitle { text: GroveBrowse.header.note; }
+        TrackTable {
+            rows: GroveBrowse.rows; show-header: false; show-album: !root.narrow; can-play: root.can-play; busy: root.busy;
+            action(a, i) => { GroveBrowse.row-action(a, i); }
+        }
+    }
+    for shelf in GroveBrowse.artist-shelves : Shelf {
+        shelf: shelf; card-width: root.narrow ? 138px : 168px; can-play: root.can-play;
+        open(c) => { GroveBrowse.open(c.kind, c.uri, c.title); }
+        play(c) => { GroveBrowse.play(c.kind, c.uri); }
+    }
+    if root.busy : Text { text: "Loading artist…"; color: GroveTheme.muted; }
+}

@@ -1,8 +1,60 @@
-// Track lists: Home (5), Search (6), artist or radio (7), history (9) and an open collection (3).
+// Home (5) is card-based: a featured hero, quick picks and cover shelves.
+// FeatureListPage stays the plain track list for song radio (7) and history (9).
 import { LineEdit } from "std-widgets.slint";
 import { GroveFeatureTrack } from "../model.slint";
 import { GroveButton, SongRow } from "../components.slint";
 import { GroveTheme } from "../theme.slint";
+import { GroveBrowse } from "../browse_model.slint";
+import { CooldownBanner, HeroCard, PickCard, SectionTitle, Shelf } from "../browse_components.slint";
+
+export component HomePage inherits VerticalLayout {
+    in-out property <int> page;
+    in property <bool> library-ready;
+    in property <bool> busy;
+    in property <bool> can-play;
+    in property <bool> narrow;
+    in property <string> current-uri;
+    callback open-local;
+    private property <int> pick-columns: self.width >= 900px ? 3 : 2;
+    private property <length> pick-width: (self.width - (root.pick-columns - 1) * 10px) / root.pick-columns;
+    spacing: root.narrow ? 20px : 28px; vertical-stretch: 0;
+    if !root.library-ready : VerticalLayout {
+        spacing: 16px;
+        Text { text: "Your music, in Grove."; color: GroveTheme.text; font-size: 26px; font-weight: 600; }
+        Text { text: "Connect Spotify to find your favorites, or open an audio file."; color: GroveTheme.muted; wrap: word-wrap; }
+        HorizontalLayout {
+            spacing: 12px; alignment: start;
+            GroveButton { text: "Connect Spotify"; accent: true; width: 170px; height: 44px; clicked => { root.page = 2; } }
+            GroveButton { text: "Open a file"; width: 130px; height: 44px; clicked => { root.open-local(); } }
+        }
+    }
+    if root.library-ready && GroveBrowse.cooldown-visible : CooldownBanner {}
+    if root.library-ready && GroveBrowse.hero.title != "" : HeroCard {
+        card: GroveBrowse.hero; label: GroveBrowse.hero-label; narrow: root.narrow; can-play: root.can-play;
+        play => { GroveBrowse.play-all(false); }
+        shuffle => { GroveBrowse.play-all(true); }
+    }
+    if root.library-ready && GroveBrowse.picks.length > 0 : VerticalLayout {
+        spacing: 10px;
+        SectionTitle { text: "Quick picks"; }
+        Rectangle {
+            height: ceil(GroveBrowse.picks.length / root.pick-columns) * 70px - 10px;
+            for pick[i] in GroveBrowse.picks : PickCard {
+                x: mod(i, root.pick-columns) * (root.pick-width + 10px);
+                y: floor(i / root.pick-columns) * 70px;
+                width: root.pick-width;
+                card: pick; can-play: root.can-play; playing: pick.uri == root.current-uri;
+                play(c) => { GroveBrowse.row-action("play", c.index); }
+            }
+        }
+    }
+    for shelf in GroveBrowse.home-shelves : Shelf {
+        shelf: shelf; card-width: root.narrow ? 138px : 172px; can-play: root.can-play;
+        open(c) => { GroveBrowse.open(c.kind, c.uri, c.title); }
+        play(c) => { GroveBrowse.play(c.kind, c.uri); }
+    }
+    if root.library-ready && root.busy && GroveBrowse.hero.title == "" && GroveBrowse.home-shelves.length == 0 : Text { text: "Gathering your Home…"; color: GroveTheme.muted; }
+}
 
 export component FeatureListPage inherits VerticalLayout {
     in-out property <int> page;

@@ -1,7 +1,10 @@
-// Library (page 3): Liked Songs and your playlists.
+// Library (3): Playlists, Albums, Artists and History tabs, with a filter for the
+// list on screen. Liked Songs and the Discovery mix are pinned to Playlists.
 import { GrovePlaylist } from "../model.slint";
 import { GroveButton } from "../components.slint";
 import { GroveTheme } from "../theme.slint";
+import { GroveBrowse } from "../browse_model.slint";
+import { BrowseIcon, ChipTabs, CooldownBanner, IconButton, ListEntry, PillButton, TrackTable } from "../browse_components.slint";
 
 export component LibraryPage inherits VerticalLayout {
     in-out property <int> page;
@@ -11,36 +14,77 @@ export component LibraryPage inherits VerticalLayout {
     in property <string> library-note;
     in property <[GrovePlaylist]> playlists;
     in property <bool> playlists-more;
+    in property <bool> busy;
+    in property <bool> can-play;
+    in property <bool> narrow;
     callback browse(string,string);
     callback refresh-library;
     callback library-more;
     spacing: 14px; vertical-stretch: 0;
-    if root.library-ready : HorizontalLayout {
-        spacing: 10px;
-        GroveButton { text: "Liked Songs"; enabled: root.library-ready; width: 130px; clicked => { root.browse("liked", "Liked Songs"); } }
-        GroveButton { text: "Playlists"; width: 110px; clicked => { root.collection-uri = ""; root.collection-title = ""; } }
-        GroveButton { text: "Refresh"; enabled: root.library-ready; width: 100px; clicked => { root.refresh-library(); } }
-    }
     if !root.library-ready : VerticalLayout {
         spacing: 16px;
-        Text { text: "Your liked songs and playlists will appear here."; color: GroveTheme.muted; wrap: word-wrap; }
+        Text { text: "Your liked songs, playlists, albums and artists will appear here."; color: GroveTheme.muted; wrap: word-wrap; }
         GroveButton { text: "Connect Spotify"; accent: true; width: 170px; clicked => { root.page = 2; } }
     }
-    if root.library-note != "" : Text { text: root.library-note; color: GroveTheme.muted; font-size: 12px; wrap: word-wrap; }
-    if root.collection-uri == "" : VerticalLayout {
-        spacing: 6px;
-        for playlist in root.playlists : Rectangle {
-            height: 62px; background: transparent;
-            HorizontalLayout {
-                spacing: 16px;
-                VerticalLayout {
-                    alignment: center; spacing: 4px;
-                    Text { text: playlist.title; color: GroveTheme.text; font-size: 15px; overflow: elide; }
-                    Text { text: playlist.subtitle; color: GroveTheme.muted; font-size: 12px; overflow: elide; }
+    if root.library-ready : HorizontalLayout {
+        spacing: 10px;
+        ChipTabs {
+            horizontal-stretch: 1;
+            tabs: ["Playlists", "Albums", "Artists", "History"];
+            selected: GroveBrowse.library-tab;
+            chosen(i) => { GroveBrowse.library-tab-changed(i); }
+        }
+        IconButton {
+            icon: "retry"; label: "Refresh library"; enabled: !root.busy;
+            clicked => {
+                if GroveBrowse.library-tab == 0 {
+                    root.refresh-library();
+                } else {
+                    GroveBrowse.library-tab-changed(GroveBrowse.library-tab + 10);
                 }
-                GroveButton { text: "Open"; width: 76px; clicked => { root.browse(playlist.uri, playlist.title); } }
             }
         }
     }
-    if root.playlists-more && root.collection-uri == "" : GroveButton { text: "Load more playlists"; width: 190px; clicked => { root.library-more(); } }
+    if root.library-ready : Rectangle {
+        height: 38px; border-radius: 19px;
+        background: GroveTheme.surface;
+        border-width: filter.has-focus ? 2px : 1px;
+        border-color: filter.has-focus ? GroveTheme.accent : GroveTheme.border;
+        HorizontalLayout {
+            padding-left: 14px; padding-right: 14px; spacing: 8px;
+            BrowseIcon { y: (parent.height - self.height) / 2; kind: "search"; ink: GroveTheme.muted; width: 16px; height: 16px; }
+            Rectangle {
+                horizontal-stretch: 1;
+                filter := TextInput {
+                    width: parent.width; height: parent.height; vertical-alignment: center; single-line: true;
+                    text <=> GroveBrowse.library-filter; color: GroveTheme.text; font-size: 13px;
+                    accessible-label: "Filter this list";
+                    edited => { GroveBrowse.library-filter-changed(self.text); }
+                }
+                if GroveBrowse.library-filter == "" : Text { width: parent.width; height: parent.height; text: "Filter by title, artist or album"; color: GroveTheme.muted; font-size: 13px; vertical-alignment: center; }
+            }
+        }
+    }
+    if root.library-ready && GroveBrowse.cooldown-visible : CooldownBanner {}
+    if root.library-ready && (GroveBrowse.library-note != "" || root.library-note != "") : Text {
+        text: GroveBrowse.library-note != "" ? GroveBrowse.library-note : root.library-note;
+        color: GroveTheme.muted; font-size: 12px; wrap: word-wrap;
+    }
+    if root.library-ready && GroveBrowse.library-tab != 3 : VerticalLayout {
+        spacing: 2px;
+        for card in GroveBrowse.library-items : ListEntry { card: card; open(c) => { GroveBrowse.open(c.kind, c.uri, c.title); } }
+    }
+    if root.library-ready && GroveBrowse.library-tab == 3 : TrackTable {
+        rows: GroveBrowse.rows; show-album: !root.narrow; can-play: root.can-play; busy: root.busy;
+        action(a, i) => { GroveBrowse.row-action(a, i); }
+    }
+    if root.library-ready && GroveBrowse.library-tab == 0 && root.playlists-more && GroveBrowse.library-filter == "" : HorizontalLayout {
+        alignment: start;
+        PillButton { text: "Load more playlists"; enabled: !root.busy; clicked => { root.library-more(); } }
+    }
+    if root.library-ready && GroveBrowse.library-tab != 0 && GroveBrowse.library-items-more : HorizontalLayout {
+        alignment: start;
+        PillButton { text: "Load more"; enabled: !root.busy; clicked => { GroveBrowse.library-next(); } }
+    }
+    if root.library-ready && root.busy : Text { text: "Loading…"; color: GroveTheme.muted; }
 }

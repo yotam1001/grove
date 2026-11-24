@@ -1,0 +1,39 @@
+// Playlist, album, Liked Songs and Discovery mix pages (10): a header with
+// large artwork and Play/Shuffle, then the track table.
+import { GroveTheme } from "../theme.slint";
+import { GroveBrowse } from "../browse_model.slint";
+import { CollectionHeader, CooldownBanner, IconButton, PillButton, TrackTable } from "../browse_components.slint";
+
+export component CollectionPage inherits VerticalLayout {
+    in property <bool> busy;
+    in property <bool> can-play;
+    in property <bool> narrow;
+    in property <bool> feature-more;
+    callback feature-back;
+    callback feature-next;
+    spacing: 16px; vertical-stretch: 0;
+    HorizontalLayout {
+        alignment: start;
+        IconButton { icon: "left"; label: "Back"; clicked => { root.feature-back(); } }
+    }
+    CollectionHeader {
+        header: GroveBrowse.header; narrow: root.narrow; can-play: root.can-play;
+        // Restricted playlists still play as a Spotify context.
+        has-rows: GroveBrowse.rows.length > 0 || (GroveBrowse.header.kind == "playlist" && !root.busy);
+        play-all(s) => { GroveBrowse.play-all(s); }
+        follow => { GroveBrowse.follow(); }
+    }
+    if GroveBrowse.cooldown-visible : CooldownBanner {}
+    if GroveBrowse.header.note != "" : Text { text: GroveBrowse.header.note; color: GroveTheme.muted; wrap: word-wrap; }
+    if GroveBrowse.rows.length > 0 : TrackTable {
+        rows: GroveBrowse.rows; can-play: root.can-play; can-remove: GroveBrowse.header.owned; busy: root.busy;
+        show-album: GroveBrowse.header.kind != "album" && !root.narrow;
+        action(a, i) => { GroveBrowse.row-action(a, i); }
+    }
+    if root.busy : Text { text: "Loading songs…"; color: GroveTheme.muted; }
+    if root.feature-more : HorizontalLayout {
+        alignment: start;
+        PillButton { text: "Load more songs"; enabled: !root.busy; clicked => { root.feature-next(); } }
+    }
+    if GroveBrowse.rows.length > 500 : Text { text: "Play and Shuffle start up to 500 of the loaded songs."; color: GroveTheme.muted; wrap: word-wrap; }
+}

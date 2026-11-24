@@ -1,0 +1,142 @@
+// Search (6): a pill field with recent searches, then All, Songs, Albums,
+// Artists and Playlists. The latest search always wins over late replies.
+import { GroveTheme } from "../theme.slint";
+import { GroveBrowse, GroveCard } from "../browse_model.slint";
+import { BrowseIcon, CardGrid, ChipTabs, CooldownBanner, CoverArt, IconButton, PillButton, PillSearch, SectionTitle, Shelf, TrackTable } from "../browse_components.slint";
+
+component TopResult inherits Rectangle {
+    in property <GroveCard> card;
+    in property <bool> can-play;
+    height: 232px;
+    border-radius: 12px;
+    background: touch.has-hover ? GroveTheme.pressed : GroveTheme.selected;
+    animate background { duration: 110ms; }
+    accessible-role: button;
+    accessible-label: "Top result: " + root.card.title;
+    accessible-action-default => { GroveBrowse.open(root.card.kind, root.card.uri, root.card.title); }
+    touch := TouchArea {
+        clicked => {
+            if root.card.kind == "track" {
+                GroveBrowse.row-action("play", root.card.index);
+            } else {
+                GroveBrowse.open(root.card.kind, root.card.uri, root.card.title);
+            }
+        }
+        CoverArt { x: 20px; y: 20px; width: 96px; height: 96px; source: root.card.cover; kind: root.card.kind; }
+        Text { x: 20px; y: 132px; width: root.width - 40px; text: root.card.title; color: GroveTheme.text; font-size: 28px; font-weight: 750; overflow: elide; }
+        kind-chip := Rectangle {
+            x: 20px; y: 182px; height: 26px; width: kind-text.preferred-width + 20px;
+            border-radius: 13px; background: GroveTheme.canvas;
+            kind-text := Text { text: root.card.kind == "track" ? "Song" : root.card.kind == "artist" ? "Artist" : root.card.kind == "album" ? "Album" : "Playlist"; color: GroveTheme.text; font-size: 12px; font-weight: 600; }
+        }
+        Text {
+            x: kind-chip.x + kind-chip.width + 10px; y: 182px; height: 26px; width: max(0px, root.width - self.x - 84px);
+            text: root.card.kind == "artist" ? "" : root.card.subtitle; color: GroveTheme.muted; font-size: 13px; vertical-alignment: center; overflow: elide;
+        }
+        if touch.has-hover && root.can-play && root.card.kind != "artist" : IconButton {
+            x: root.width - self.width - 20px; y: root.height - self.height - 20px; width: 48px;
+            icon: "play"; filled: true; label: "Play " + root.card.title;
+            clicked => {
+                if root.card.kind == "track" {
+                    GroveBrowse.row-action("play", root.card.index);
+                } else {
+                    GroveBrowse.play(root.card.kind, root.card.uri);
+                }
+            }
+        }
+    }
+}
+
+export component SearchPage inherits VerticalLayout {
+    in-out property <string> search-text;
+    in property <bool> library-ready;
+    in property <bool> busy;
+    in property <bool> can-play;
+    in property <bool> narrow;
+    in property <bool> feature-more;
+    callback search(string);
+    callback feature-next;
+    private property <bool> side-by-side: !root.narrow;
+    spacing: 18px; vertical-stretch: 0;
+    PillSearch {
+        text <=> root.search-text;
+        placeholder: "What do you want to listen to?";
+        accepted(t) => { root.search(t); }
+        cleared => { root.search(""); }
+    }
+    if GroveBrowse.cooldown-visible : CooldownBanner {}
+    if GroveBrowse.search-query == "" && GroveBrowse.recent-searches.length > 0 : VerticalLayout {
+        spacing: 6px;
+        HorizontalLayout {
+            SectionTitle { text: "Recent searches"; horizontal-stretch: 1; vertical-alignment: center; }
+            PillButton { text: "Clear"; clicked => { GroveBrowse.clear-recent(); } }
+        }
+        for query in GroveBrowse.recent-searches : Rectangle {
+            height: 44px; border-radius: 8px;
+            background: recent-touch.has-hover ? GroveTheme.selected : transparent;
+            accessible-role: button;
+            accessible-label: "Search again for " + query;
+            accessible-action-default => { GroveBrowse.recent-search(query); }
+            recent-touch := TouchArea {
+                clicked => { GroveBrowse.recent-search(query); }
+                BrowseIcon { x: 12px; y: (parent.height - self.height) / 2; kind: "clock"; ink: GroveTheme.muted; }
+                Text { x: 44px; width: parent.width - 56px; height: parent.height; text: query; color: GroveTheme.text; font-size: 14px; vertical-alignment: center; overflow: elide; }
+            }
+        }
+    }
+    if GroveBrowse.search-query == "" && GroveBrowse.recent-searches.length == 0 : Text {
+        text: root.library-ready ? "Search songs, albums, artists and playlists, or paste a Spotify link." : "Connect Spotify to search its catalogue.";
+        color: GroveTheme.muted; wrap: word-wrap;
+    }
+    if GroveBrowse.search-query != "" : ChipTabs {
+        tabs: ["All", "Songs", "Albums", "Artists", "Playlists"];
+        selected: GroveBrowse.search-tab;
+        chosen(i) => { GroveBrowse.search-tab-changed(i); }
+    }
+    if GroveBrowse.search-query != "" && GroveBrowse.search-tab == 0 && root.side-by-side && GroveBrowse.search-top.title != "" : HorizontalLayout {
+        spacing: 24px;
+        VerticalLayout {
+            width: 320px; spacing: 10px; alignment: start;
+            SectionTitle { text: "Top result"; }
+            TopResult { card: GroveBrowse.search-top; can-play: root.can-play; }
+        }
+        VerticalLayout {
+            spacing: 10px; horizontal-stretch: 1; alignment: start;
+            SectionTitle { text: "Songs"; }
+            TrackTable { rows: GroveBrowse.search-songs; show-header: false; show-album: false; can-play: root.can-play; busy: root.busy; action(a, i) => { GroveBrowse.row-action(a, i); } }
+        }
+    }
+    if GroveBrowse.search-query != "" && GroveBrowse.search-tab == 0 && !root.side-by-side && GroveBrowse.search-top.title != "" : VerticalLayout {
+        spacing: 10px;
+        SectionTitle { text: "Top result"; }
+        TopResult { card: GroveBrowse.search-top; can-play: root.can-play; }
+        SectionTitle { text: "Songs"; }
+        TrackTable { rows: GroveBrowse.search-songs; show-header: false; show-album: false; can-play: root.can-play; busy: root.busy; action(a, i) => { GroveBrowse.row-action(a, i); } }
+    }
+    if GroveBrowse.search-query != "" && GroveBrowse.search-tab == 0 : VerticalLayout {
+        spacing: 22px;
+        for shelf in GroveBrowse.search-shelves : Shelf {
+            shelf: shelf; card-width: root.narrow ? 138px : 164px; can-play: root.can-play;
+            open(c) => { GroveBrowse.open(c.kind, c.uri, c.title); }
+            play(c) => { GroveBrowse.play(c.kind, c.uri); }
+        }
+    }
+    if GroveBrowse.search-query != "" && GroveBrowse.search-tab == 1 : TrackTable {
+        rows: GroveBrowse.rows; show-album: !root.narrow; can-play: root.can-play; busy: root.busy;
+        action(a, i) => { GroveBrowse.row-action(a, i); }
+    }
+    if GroveBrowse.search-query != "" && GroveBrowse.search-tab == 1 && root.feature-more : HorizontalLayout {
+        alignment: start;
+        PillButton { text: "Load more songs"; enabled: !root.busy; clicked => { root.feature-next(); } }
+    }
+    if GroveBrowse.search-query != "" && GroveBrowse.search-tab >= 2 : CardGrid {
+        cards: GroveBrowse.search-cards; min-card: root.narrow ? 130px : 156px; can-play: root.can-play;
+        open(c) => { GroveBrowse.open(c.kind, c.uri, c.title); }
+        play(c) => { GroveBrowse.play(c.kind, c.uri); }
+    }
+    if GroveBrowse.search-query != "" && GroveBrowse.search-tab >= 2 && GroveBrowse.search-cards-more : HorizontalLayout {
+        alignment: start;
+        PillButton { text: "Load more"; enabled: !root.busy; clicked => { GroveBrowse.search-more(); } }
+    }
+    if root.busy : Text { text: "Searching Spotify…"; color: GroveTheme.muted; }
+}
