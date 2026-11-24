@@ -377,6 +377,7 @@ function Install-Grove([string]$PackageRoot, [string]$InstallRoot, [string]$Shor
             try { Remove-GroveOwnedRelease $oldRelease }
             catch { Write-Warning 'Update succeeded; some previous owned files remain for a later removal.' }
         }
+        try { Set-GroveUrlHandler $InstallRoot (Join-Path $release 'grove-music.exe') } catch { Write-Warning 'Jam invite links (grove://) could not be registered; paste invites in Grove instead.' }
         Write-GroveProgress 100 'Grove is ready to open'
         Write-Output ('GROVE_RESULT|' + (Join-Path $release 'grove-music.exe'))
     } catch {
@@ -438,6 +439,7 @@ function Uninstall-Grove([string]$InstallRoot, [string]$ShortcutRoot) {
         # Previous failed cleanup releases are still strictly confined by ID and their ownership records.
         foreach ($item in $ownedReleases) { Remove-GroveOwnedRelease $item.FullName }
         Remove-Item -LiteralPath (Join-Path $InstallRoot '.grove-install.json') -Force
+        try { Remove-GroveUrlHandler $InstallRoot } catch { Write-Warning 'The grove:// link handler could not be removed.' }
     } finally {
         $lock.Dispose()
         Remove-Item -LiteralPath (Join-Path $InstallRoot '.grove-install.lock') -Force
@@ -446,4 +448,35 @@ function Uninstall-Grove([string]$InstallRoot, [string]$ShortcutRoot) {
         if ((Test-Path -LiteralPath $directory) -and @(Get-ChildItem -LiteralPath $directory -Force).Count -eq 0) { Remove-Item -LiteralPath $directory }
     }
     Write-Output 'Grove removed. Saved preferences and Spotify approvals were preserved; Disconnect in Grove removes its saved approvals.'
+}
+
+# ---- Jams: per-user grove:// invite link handler --------------------------
+# HKCU only (no administrator rights). A link only fills in the invitation in
+# Grove; joining still needs a click. Existing handlers that point outside this
+# install root are left untouched, and removal only deletes Grove's own entry.
+function Get-GroveUrlHandlerCommand {
+    $key = 'HKCU:\Software\Classes\grove\shell\open\command'
+    if (!(Test-Path -LiteralPath $key)) { return $null }
+    return (Get-ItemProperty -LiteralPath $key -ErrorAction Stop).'(default)'
+}
+function Test-GroveUrlHandlerOwned([string]$InstallRoot, $Command) {
+    if ($null -eq $Command) { return $false }
+    $prefix = '"' + [IO.Path]::GetFullPath($InstallRoot).TrimEnd([char]92) + [char]92 + 'releases' + [char]92
+    return $Command.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) -and $Command.EndsWith('\grove-music.exe" "%1"')
+}
+function Set-GroveUrlHandler([string]$InstallRoot, [string]$Exe) {
+    $current = Get-GroveUrlHandlerCommand
+    if ($null -ne $current -and !(Test-GroveUrlHandlerOwned $InstallRoot $current)) { throw 'Another app owns grove:// links.' }
+    $root = 'HKCU:\Software\Classes\grove'
+    $command = '"' + [IO.Path]::GetFullPath($Exe) + '" "%1"'
+    if (!(Test-GroveUrlHandlerOwned $InstallRoot $command)) { throw 'Unexpected Grove executable path.' }
+    New-Item -Path ($root + '\shell\open\command') -Force | Out-Null
+    Set-ItemProperty -LiteralPath $root -Name '(default)' -Value 'URL:Grove jam invite'
+    Set-ItemProperty -LiteralPath $root -Name 'URL Protocol' -Value ''
+    Set-ItemProperty -LiteralPath ($root + '\shell\open\command') -Name '(default)' -Value $command
+}
+function Remove-GroveUrlHandler([string]$InstallRoot) {
+    if (Test-GroveUrlHandlerOwned $InstallRoot (Get-GroveUrlHandlerCommand)) {
+        Remove-Item -LiteralPath 'HKCU:\Software\Classes\grove' -Recurse -Force
+    }
 }
