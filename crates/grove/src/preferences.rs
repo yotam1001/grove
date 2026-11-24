@@ -145,8 +145,8 @@ mod tests {
         #[cfg(windows)]
         {
             assert_eq!(
-                data_dir_from(env(&[("APPDATA", r"C:\Users\a\AppData\Roaming")])),
-                Some(PathBuf::from(r"C:\Users\a\AppData\Roaming\GroveMusic"))
+                data_dir_from(env(&[("APPDATA", r"D:\Profiles\a\AppData\Roaming")])),
+                Some(PathBuf::from(r"D:\Profiles\a\AppData\Roaming\GroveMusic"))
             );
             assert_eq!(data_dir_from(env(&[("APPDATA", "relative")])), None);
         }
