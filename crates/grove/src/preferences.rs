@@ -20,6 +20,8 @@ pub struct Preferences {
     pub close_to_tray: bool,
     /// Global Play/pause, Next and Previous chords; "" when unset.
     pub shortcuts: [String; 3],
+    #[serde(deserialize_with = "crate::audio::settings::lenient")]
+    pub audio: crate::audio::settings::AudioSettings,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -35,6 +37,7 @@ impl Default for Preferences {
             follow_system: false,
             close_to_tray: false,
             shortcuts: Default::default(),
+            audio: Default::default(),
         }
     }
 }
@@ -76,6 +79,7 @@ impl Preferences {
                 shortcut.clear();
             }
         }
+        prefs.audio.sanitize();
         Ok(prefs)
     }
     pub fn save(&self) -> Result<(), String> {

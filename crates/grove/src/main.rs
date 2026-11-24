@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod app;
 mod artwork;
+#[allow(dead_code)] // Wired into the engine and window in the next commits.
+mod audio;
 mod auth;
 mod beta;
 mod browse_cache;
