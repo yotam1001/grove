@@ -1,0 +1,19 @@
+// Grove's colour tokens. Every component reads them; the window sets `light`.
+export global GroveTheme {
+    in-out property <bool> light: false;
+    out property <color> canvas: light ? #f4f7f4 : #141617;
+    out property <color> rail: light ? #e8efea : #0b0d0e;
+    out property <color> surface: light ? #ffffff : #1d2022;
+    out property <color> selected: light ? #dce5df : #24282a;
+    out property <color> pressed: light ? #d1ded5 : #303639;
+    out property <color> border: light ? #becdc2 : #303437;
+    out property <color> line: light ? #d2ddd5 : #292d30;
+    out property <color> text: light ? #15221b : #f5f7f8;
+    out property <color> secondary: light ? #3f5147 : #bdc3c7;
+    out property <color> muted: light ? #53675b : #a1a8ae;
+    out property <color> disabled: #777f86;
+    out property <color> accent: light ? #147b48 : #35df82;
+    out property <color> accent-pressed: #27bd6c;
+    out property <color> on-accent: light ? #ffffff : #08170f;
+    out property <color> warning: light ? #88581c : #e8bd7a;
+}

@@ -116,7 +116,7 @@ workspace, link entry, queue and persistent transport. The library and two-stage
 Connection screen extend the same system for the requested Spotifast approach.
 All interface text, icons and controls are native Slint, not a screenshot.
 
-Tokens live in `GroveTheme` in `ui/grove.slint`: background `#141617`, rail and
+Tokens live in `GroveTheme` in `ui/theme.slint`: background `#141617`, rail and
 player `#0b0d0e`, surface `#1d2022`, accent `#35df82`, text `#f5f7f8`, muted
 `#a1a8ae`. Segoe UI uses 32/24/16/14/12 px typography. Navigation is left aligned
 with a green selection marker; disabled actions use neutral gray. The record

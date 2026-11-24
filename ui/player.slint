@@ -1,0 +1,84 @@
+// The bottom player bar, full and mini. State comes from the window.
+import { GroveTheme } from "theme.slint";
+import { GroveButton, GroveSlider, Rule } from "components.slint";
+
+export component PlayerBar inherits Rectangle {
+    in property <bool> mini;
+    in property <bool> narrow;
+    in property <image> current-cover;
+    in property <bool> local-active;
+    in property <bool> authenticated;
+    in property <string> track-title;
+    in property <string> artist;
+    in property <bool> library-ready;
+    in property <string> current-uri;
+    in property <bool> shuffle;
+    in property <bool> can-shuffle;
+    in property <bool> following-guest;
+    in property <bool> can-previous;
+    in property <bool> playing;
+    in property <bool> can-pause;
+    in property <bool> can-play;
+    in property <bool> can-next;
+    in property <bool> repeat;
+    in property <bool> can-repeat;
+    in property <bool> current-saved;
+    in property <string> elapsed;
+    in property <float> duration;
+    in property <float> position;
+    in property <bool> can-seek;
+    in property <string> total;
+    in property <float> volume;
+    in property <string> status;
+    callback song-action(string,string);
+    callback transport(string);
+    callback seek(float);
+    callback set-volume(float);
+    callback switch-mini;
+    height: root.mini ? 104px : 120px;
+    background: GroveTheme.rail;
+    VerticalLayout {
+        spacing: 0; padding: 0;
+        Rule {}
+        HorizontalLayout {
+            padding: 18px; spacing: 22px;
+            if !root.mini && !root.narrow : Rectangle {
+                width: 58px; height: 58px; border-radius: 8px; background: GroveTheme.surface;
+                if root.current-cover.width == 0 || root.local-active : Image { source: @image-url("../assets/grove/logo.svg"); x: 11px; y: 11px; width: 36px; height: 36px; image-fit: contain; }
+                if root.current-cover.width > 0 && !root.local-active : Image { source: root.current-cover; width: parent.width; height: parent.height; image-fit: cover; }
+            }
+            VerticalLayout {
+                width: root.mini ? 170px : root.narrow ? 160px : 210px; alignment: center; spacing: 5px;
+                Text { text: root.authenticated || root.local-active ? root.track-title : "Grove"; color: GroveTheme.text; font-size: 16px; font-weight: 600; overflow: elide; }
+                GroveButton { text: root.authenticated || root.local-active ? root.artist : "Waiting for Spotify"; flat: true; navigation: true; height: 24px; enabled: root.library-ready && root.current-uri != "" && !root.local-active; clicked => { root.song-action("Artist",root.current-uri); } }
+            }
+            VerticalLayout {
+                horizontal-stretch: 1; spacing: 8px;
+                HorizontalLayout {
+                    alignment: center; spacing: 10px;
+                    if !root.mini && !root.narrow : GroveButton { text: "Shuffle"; selected: root.shuffle; flat: !root.shuffle; width: 78px; enabled: root.can-shuffle && !root.following-guest; clicked => { root.transport("shuffle"); } }
+                    GroveButton { icon: "previous"; flat: true; width: 40px; enabled: root.can-previous && !root.following-guest; clicked => { root.transport("skip_prev"); } }
+                    GroveButton { icon: root.playing ? "pause" : "play"; round: true; width: 46px; height: 46px; accent: true; enabled: (root.playing ? root.can-pause : root.can-play) && !root.following-guest; clicked => { root.transport(root.playing ? "pause" : "play"); } }
+                    GroveButton { icon: "next"; flat: true; width: 40px; enabled: root.can-next && !root.following-guest; clicked => { root.transport("skip_next"); } }
+                    if !root.mini : GroveButton { icon: "repeat"; label: root.repeat ? "Disable repeat" : "Enable repeat"; active-icon: root.repeat && !root.local-active; selected: root.repeat && !root.local-active; flat: !root.repeat || root.local-active; width: 40px; enabled: root.can-repeat && !root.following-guest; clicked => { root.transport("repeat"); } }
+                    if !root.mini : GroveButton { icon: root.current-saved && !root.local-active ? "heart-filled" : "heart"; label: root.current-saved ? "Remove from saved songs" : "Save to Spotify"; active-icon: root.current-saved && !root.local-active; width: 40px; flat: true; enabled: root.library-ready && root.current-uri != "" && !root.local-active; clicked => { root.song-action(root.current-saved ? "Unsave" : "Save",root.current-uri); } }
+                }
+                if !root.mini : HorizontalLayout {
+                    spacing: 7px;
+                    Text { text: root.elapsed; color: GroveTheme.muted; font-size: 11px; width: 34px; vertical-alignment: center; }
+                    GroveSlider { minimum: 0; maximum: max(1, root.duration); value: root.position; enabled: root.can-seek && root.duration > 0 && !root.following-guest; label: "Playback position"; released(value) => { root.seek(value); } }
+                    Text { text: root.total; color: GroveTheme.muted; font-size: 11px; width: 34px; vertical-alignment: center; }
+                }
+            }
+            VerticalLayout {
+                width: root.mini ? 70px : root.narrow ? 170px : 190px; alignment: center; spacing: 12px;
+                HorizontalLayout {
+                    spacing: 10px;
+                    if !root.mini : GroveSlider { minimum: 0; maximum: 100; value: root.volume; enabled: root.authenticated || root.local-active; label: "Volume"; released(value) => { root.set-volume(value); } }
+                    GroveButton { text: root.mini ? "Expand" : "Mini"; width: 70px; clicked => { root.switch-mini(); } }
+                }
+                if !root.mini : Text { text: root.status; color: GroveTheme.muted; font-size: 11px; overflow: elide; }
+            }
+        }
+    }
+}

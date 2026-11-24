@@ -63,7 +63,7 @@ impl Local {
         self.pending = None;
         ui.set_local_active(false);
         ui.set_message("".into());
-        crate::refresh(ui, state);
+        crate::app::window::refresh(ui, state);
     }
     pub fn transport(&mut self, ui: &GroveWindow, action: &str) -> bool {
         if self.pending.is_some() {

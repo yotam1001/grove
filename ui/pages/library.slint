@@ -1,0 +1,46 @@
+// Library (page 3): Liked Songs and your playlists.
+import { GrovePlaylist } from "../model.slint";
+import { GroveButton } from "../components.slint";
+import { GroveTheme } from "../theme.slint";
+
+export component LibraryPage inherits VerticalLayout {
+    in-out property <int> page;
+    in property <bool> library-ready;
+    in-out property <string> collection-uri;
+    in-out property <string> collection-title;
+    in property <string> library-note;
+    in property <[GrovePlaylist]> playlists;
+    in property <bool> playlists-more;
+    callback browse(string,string);
+    callback refresh-library;
+    callback library-more;
+    spacing: 14px; vertical-stretch: 0;
+    if root.library-ready : HorizontalLayout {
+        spacing: 10px;
+        GroveButton { text: "Liked Songs"; enabled: root.library-ready; width: 130px; clicked => { root.browse("liked", "Liked Songs"); } }
+        GroveButton { text: "Playlists"; width: 110px; clicked => { root.collection-uri = ""; root.collection-title = ""; } }
+        GroveButton { text: "Refresh"; enabled: root.library-ready; width: 100px; clicked => { root.refresh-library(); } }
+    }
+    if !root.library-ready : VerticalLayout {
+        spacing: 16px;
+        Text { text: "Your liked songs and playlists will appear here."; color: GroveTheme.muted; wrap: word-wrap; }
+        GroveButton { text: "Connect Spotify"; accent: true; width: 170px; clicked => { root.page = 2; } }
+    }
+    if root.library-note != "" : Text { text: root.library-note; color: GroveTheme.muted; font-size: 12px; wrap: word-wrap; }
+    if root.collection-uri == "" : VerticalLayout {
+        spacing: 6px;
+        for playlist in root.playlists : Rectangle {
+            height: 62px; background: transparent;
+            HorizontalLayout {
+                spacing: 16px;
+                VerticalLayout {
+                    alignment: center; spacing: 4px;
+                    Text { text: playlist.title; color: GroveTheme.text; font-size: 15px; overflow: elide; }
+                    Text { text: playlist.subtitle; color: GroveTheme.muted; font-size: 12px; overflow: elide; }
+                }
+                GroveButton { text: "Open"; width: 76px; clicked => { root.browse(playlist.uri, playlist.title); } }
+            }
+        }
+    }
+    if root.playlists-more && root.collection-uri == "" : GroveButton { text: "Load more playlists"; width: 190px; clicked => { root.library-more(); } }
+}

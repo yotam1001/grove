@@ -1,0 +1,207 @@
+// Shared controls: switch, icon mark, button, divider, song row and slider.
+import { Button, Slider } from "std-widgets.slint";
+import { GroveTheme } from "theme.slint";
+import { GroveFeatureTrack } from "model.slint";
+
+export component GroveSwitch inherits Rectangle {
+    in property <string> text;
+    in property <bool> checked;
+    callback toggled;
+    height: 32px;
+    horizontal-stretch: 0;
+    min-width: switch-layout.min-width;
+    accessible-role: switch;
+    accessible-label: root.text;
+    accessible-checkable: true;
+    accessible-checked: root.checked;
+    accessible-action-default => { root.toggled(); }
+    forward-focus: keyboard;
+    switch-layout := HorizontalLayout {
+        spacing: 12px;
+        alignment: start;
+        Rectangle {
+            width: 40px; height: 22px;
+            border-radius: 11px;
+            background: root.checked ? GroveTheme.accent : GroveTheme.surface;
+            border-width: 1px;
+            border-color: keyboard.has-focus ? GroveTheme.accent : root.checked ? GroveTheme.accent : GroveTheme.muted;
+            Rectangle {
+                x: root.checked ? 22px : 4px; y: 4px;
+                width: 14px; height: 14px; border-radius: 7px;
+                background: root.checked ? GroveTheme.on-accent : GroveTheme.secondary;
+                animate x { duration: 120ms; }
+            }
+        }
+        Text { text: root.text; color: GroveTheme.text; vertical-alignment: center; }
+    }
+    TouchArea { clicked => { root.toggled(); } }
+    keyboard := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.toggled();
+                return accept;
+            }
+            return reject;
+        }
+    }
+}
+
+export component Mark inherits Path {
+    in property <string> kind;
+    in property <color> ink: GroveTheme.accent;
+    width: 22px; height: 22px;
+    viewbox-width: 24; viewbox-height: 24;
+    fill: root.kind == "play" || root.kind == "leaf" || root.kind == "heart-filled" ? root.ink : transparent;
+    stroke: root.ink; stroke-width: 1.6px;
+    commands: root.kind == "leaf" ? "M 4 21 C 6 14 9 9 18 4 M 6 16 C 0 8 12 2 21 2 C 22 12 17 21 6 16 Z"
+        : root.kind == "play" ? "M 7 4 L 20 12 L 7 20 Z"
+        : root.kind == "pause" ? "M 8 4 L 8 20 M 16 4 L 16 20"
+        : root.kind == "next" ? "M 5 5 L 16 12 L 5 19 Z M 19 5 L 19 19"
+        : root.kind == "previous" ? "M 19 5 L 8 12 L 19 19 Z M 5 5 L 5 19"
+        : root.kind == "queue" ? "M 8 5 L 22 5 M 8 12 L 22 12 M 8 19 L 22 19 M 2 5 L 4 5 M 2 12 L 4 12 M 2 19 L 4 19"
+        : root.kind == "library" ? "M 3 4 L 8 4 L 8 21 L 3 21 Z M 11 4 L 16 4 L 16 21 L 11 21 Z M 19 4 L 23 20"
+        : root.kind == "people" ? "M 14 7 A 3 3 0 1 1 8 7 A 3 3 0 1 1 14 7 M 3 21 L 3 18 C 3 12 19 12 19 18 L 19 21 Z M 18 4 C 22 4 23 10 19 11 M 20 14 C 23 14 23 17 23 20"
+        : root.kind == "listen" ? "M 3 9 L 3 15 M 7 5 L 7 19 M 12 2 L 12 22 M 17 6 L 17 18 M 22 10 L 22 14"
+        : root.kind == "link" ? "M 9 15 L 15 9 M 8 17 L 6 19 C 2 22 -1 17 2 14 L 7 9 C 9 7 12 7 14 9 M 10 15 C 12 17 15 17 17 15 L 22 10 C 25 7 21 2 18 5 L 16 7"
+        : root.kind == "home" ? "M 2 11 L 12 2 L 22 11 M 5 9 L 5 22 L 10 22 L 10 15 L 15 15 L 15 22 L 20 22 L 20 9"
+        : root.kind == "search" ? "M 17 10 A 7 7 0 1 1 3 10 A 7 7 0 1 1 17 10 M 15 15 L 23 23"
+        : root.kind == "settings" ? "M 2 5 L 22 5 M 2 12 L 22 12 M 2 19 L 22 19 M 7 2 L 7 8 M 17 9 L 17 15 M 9 16 L 9 22"
+        : root.kind == "repeat" ? "M 17 2 L 21 6 L 17 10 M 3 11 L 3 9 C 3 7.3 4.3 6 6 6 L 21 6 M 7 22 L 3 18 L 7 14 M 21 13 L 21 15 C 21 16.7 19.7 18 18 18 L 3 18"
+        : root.kind == "heart" || root.kind == "heart-filled" ? "M 20.8 4.6 A 5.5 5.5 0 0 0 13.1 4.6 L 12 5.7 L 10.9 4.6 A 5.5 5.5 0 0 0 3.2 12.4 L 12 21.2 L 20.8 12.4 A 5.5 5.5 0 0 0 20.8 4.6 Z"
+        : "M 9 18 L 9 5 L 21 2 L 21 15 M 9 5 L 21 2 M 9 18 C 9 23 1 24 1 20 C 1 17 9 15 9 18 M 21 15 C 21 20 13 21 13 17 C 13 14 21 12 21 15";
+}
+
+export component GroveButton inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <string> label;
+    in property <bool> active-icon: false;
+    in property <bool> accent: false;
+    in property <bool> selected: false;
+    in property <bool> flat: false;
+    in property <bool> round: false;
+    in property <bool> enabled: true;
+    in property <bool> navigation: false;
+    private property <color> ink: !root.enabled ? GroveTheme.disabled : root.active-icon ? GroveTheme.accent : root.accent ? GroveTheme.on-accent : root.navigation && !root.selected ? GroveTheme.secondary : GroveTheme.text;
+    callback clicked;
+    min-width: 40px; height: 40px;
+    border-radius: root.round ? 24px : 8px;
+    background: !root.enabled ? (root.flat ? transparent : GroveTheme.selected) : control.pressed ? (root.accent ? GroveTheme.accent-pressed : GroveTheme.pressed) : root.accent ? GroveTheme.accent : root.selected ? GroveTheme.surface : root.flat ? transparent : GroveTheme.surface;
+    border-width: control.has-focus ? 2px : root.flat || root.accent ? 0px : 1px;
+    border-color: control.has-focus ? GroveTheme.accent : GroveTheme.border;
+    animate background { duration: 130ms; }
+    if root.navigation && root.selected : Rectangle {
+        x: 0px; y: 10px; width: 3px; height: parent.height - 20px;
+        border-radius: 2px; background: GroveTheme.accent;
+    }
+    HorizontalLayout {
+        alignment: root.navigation ? start : center; cross-axis-alignment: center; spacing: 12px; padding-left: root.navigation ? 14px : root.text == "" ? 8px : 12px; padding-right: root.text == "" ? 8px : 12px;
+        if root.icon != "" : Mark { kind: root.icon; ink: root.ink; width: root.navigation ? 20px : 22px; height: self.width; }
+        if root.text != "" : Text { text: root.text; color: root.ink; font-size: 14px; font-weight: root.selected ? 600 : 400; vertical-alignment: center; overflow: elide; }
+    }
+    control := Button {
+        width: parent.width; height: parent.height;
+        text: root.text; accessible-label: root.label != "" ? root.label : root.text == "" ? root.icon : root.text;
+        enabled: root.enabled; opacity: 0;
+        clicked => { root.clicked(); }
+    }
+    forward-focus: control;
+}
+
+export component Rule inherits Rectangle { height: 1px; background: GroveTheme.line; }
+
+export component SongRow inherits Rectangle {
+    in property <GroveFeatureTrack> song;
+    in property <bool> saved: false;
+    in property <bool> can-remove: false;
+    in property <bool> can-play;
+    in property <bool> busy;
+    callback action(string,string);
+    private property <bool> expanded: false;
+    height: root.expanded ? 150px : 62px;
+    background: transparent;
+    VerticalLayout {
+        spacing: 5px;
+        HorizontalLayout {
+            spacing: 12px;
+            Rectangle {
+                width: 44px; height: 44px; border-radius: 6px; background: GroveTheme.surface; clip: true;
+                if root.song.cover.width > 0 : Image { source: root.song.cover; image-fit: cover; }
+                if root.song.cover.width == 0 : Mark { kind: "note"; width: 22px; height: 22px; x: 11px; y: 11px; ink: GroveTheme.muted; }
+            }
+            VerticalLayout {
+                alignment: center; spacing: 4px;
+                Text { text: root.song.title; color: GroveTheme.text; font-size: 14px; overflow: elide; }
+                Text { text: root.song.artist; color: GroveTheme.muted; font-size: 12px; overflow: elide; }
+            }
+            Text { text: root.song.duration; color: GroveTheme.muted; font-size: 12px; width: 36px; vertical-alignment: center; }
+            GroveButton { icon: "play"; width: 36px; enabled: root.can-play; clicked => { root.action("play",root.song.uri); } }
+            GroveButton { text: "···"; width: 38px; clicked => { root.expanded = !root.expanded; } }
+        }
+        if root.expanded : HorizontalLayout {
+            spacing: 8px; alignment: start;
+            GroveButton { text: "Play next"; width: 130px; enabled: !root.busy; clicked => { root.action("Next",root.song.uri); root.expanded = false; } }
+            GroveButton { text: "Add to queue"; width: 130px; enabled: !root.busy; clicked => { root.action("Queue",root.song.uri); root.expanded = false; } }
+            GroveButton { text: root.saved ? "Unlike" : "Like"; width: 130px; enabled: !root.busy; clicked => { root.action(root.saved ? "Unsave" : "Save",root.song.uri); root.expanded = false; } }
+        }
+        if root.expanded : HorizontalLayout {
+            spacing: 8px; alignment: start;
+            GroveButton { text: "View artist"; width: 130px; enabled: !root.busy; clicked => { root.action("Artist",root.song.uri); root.expanded = false; } }
+            GroveButton { text: "Add to playlist"; width: 130px; enabled: !root.busy; clicked => { root.action("Playlist",root.song.uri); root.expanded = false; } }
+            GroveButton { text: root.can-remove ? "Remove song" : "Hide song"; width: 130px; enabled: !root.busy; clicked => { root.action(root.can-remove ? "Remove" : "Hide",root.song.uri); root.expanded = false; } }
+        }
+    }
+}
+
+// Keep Slint's pointer, keyboard and accessibility behavior under a quiet skin.
+export component GroveSlider inherits Rectangle {
+    in property <float> minimum: 0;
+    in property <float> maximum: 100;
+    in property <float> value: 0;
+    in property <bool> enabled: true;
+    in property <string> label;
+    callback released(float);
+    private property <float> preview: root.value;
+    private property <bool> interacting: false;
+    private property <bool> input-focused: native.has-focus;
+    private property <float> fraction: root.maximum > root.minimum ? min(1, max(0, (root.preview - root.minimum) / (root.maximum - root.minimum))) : 0;
+    changed value => { if !root.interacting { root.preview = root.value; } }
+    changed maximum => { root.interacting = false; root.preview = root.value; }
+    changed enabled => { root.interacting = false; root.preview = root.value; }
+    changed input-focused => { if !root.input-focused { root.interacting = false; root.preview = root.value; } }
+    min-width: 40px; min-height: 20px; horizontal-stretch: 1;
+    forward-focus: native;
+    function commit(value: float) {
+        if root.enabled {
+            root.interacting = false;
+            root.released(min(root.maximum, max(root.minimum, value)));
+            root.preview = root.value;
+        }
+    }
+    Rectangle {
+        x: 6px; y: (parent.height - 3px) / 2;
+        width: max(0px, parent.width - 12px); height: 3px;
+        background: GroveTheme.pressed; border-radius: 2px;
+    }
+    Rectangle {
+        x: 6px; y: (parent.height - 3px) / 2;
+        width: max(0px, parent.width - 12px) * root.fraction; height: 3px;
+        background: root.enabled ? GroveTheme.accent : GroveTheme.disabled; border-radius: 2px;
+    }
+    Rectangle {
+        x: 1px + max(0px, parent.width - 12px) * root.fraction; y: (parent.height - 10px) / 2;
+        width: 10px; height: 10px; border-radius: 5px;
+        background: root.enabled ? GroveTheme.text : GroveTheme.disabled;
+        border-width: native.has-focus ? 2px : 0px; border-color: GroveTheme.accent;
+    }
+    native := Slider {
+        width: parent.width; height: parent.height; opacity: 0;
+        minimum: root.minimum; maximum: root.maximum; value <=> root.preview;
+        enabled: root.enabled; accessible-label: root.label;
+        accessible-action-set-value(value) => { if value.is-float() { root.commit(value.to-float()); } }
+        accessible-action-increment => { root.commit(root.value + 1); }
+        accessible-action-decrement => { root.commit(root.value - 1); }
+        changed(value) => { root.interacting = true; }
+        released(value) => { root.commit(value); }
+    }
+}

@@ -1,0 +1,53 @@
+// Queue (page 1): Grove's editable queue, then Spotify's own queue.
+import { GroveTrack } from "../model.slint";
+import { GroveButton } from "../components.slint";
+import { GroveTheme } from "../theme.slint";
+
+export component QueuePage inherits VerticalLayout {
+    in property <[GroveTrack]> local-queue;
+    in property <[GroveTrack]> tracks;
+    in property <bool> compact-mode;
+    callback queue-edit(string,int);
+    // Matches the window's content spacing so the two blocks keep their gaps.
+    spacing: root.compact-mode ? 16px : 22px; padding: 0; vertical-stretch: 0;
+    if root.local-queue.length > 0 || root.tracks.length == 0 : VerticalLayout {
+        spacing: 12px; vertical-stretch: 0;
+        HorizontalLayout {
+            Text { text: "Up next"; color: GroveTheme.text; font-size: 24px; font-weight: 600; }
+            if root.local-queue.length > 0 : GroveButton { text: "Clear"; width: 80px; clicked => { root.queue-edit("clear",0); } }
+        }
+        if root.local-queue.length == 0 : Text { text: "Your queue is empty. Add a song from Search or Library."; color: GroveTheme.muted; wrap: word-wrap; }
+        for track[index] in root.local-queue : HorizontalLayout {
+            spacing: 8px; height: 58px;
+            VerticalLayout {
+                alignment: center;
+                Text { text: track.title; color: GroveTheme.text; overflow: elide; }
+                Text { text: track.artist; color: GroveTheme.muted; font-size: 12px; overflow: elide; }
+            }
+            GroveButton { text: "↑"; width: 40px; enabled: index > 0; clicked => { root.queue-edit("up",index); } }
+            GroveButton { text: "↓"; width: 40px; enabled: index + 1 < root.local-queue.length; clicked => { root.queue-edit("down",index); } }
+            GroveButton { text: "Remove"; width: 86px; clicked => { root.queue-edit("remove",index); } }
+        }
+    }
+    if root.tracks.length > 0 : VerticalLayout {
+        spacing: 16px; vertical-stretch: 0;
+        HorizontalLayout {
+            Text { text: root.local-queue.length > 0 ? "From Spotify" : "Up next"; color: GroveTheme.text; font-size: 24px; font-weight: 600; }
+
+        }
+
+        for track[index] in root.tracks : Rectangle {
+            height: 56px; background: transparent;
+            HorizontalLayout {
+                spacing: 18px;
+                Text { text: index + 1; color: GroveTheme.muted; width: 24px; vertical-alignment: center; }
+                VerticalLayout {
+                    alignment: center; spacing: 3px;
+                    Text { text: track.title; color: GroveTheme.text; font-size: 14px; overflow: elide; }
+                    Text { text: track.artist; color: GroveTheme.muted; font-size: 12px; overflow: elide; }
+                }
+                Text { text: track.duration; color: GroveTheme.muted; width: 40px; vertical-alignment: center; }
+            }
+        }
+    }
+}

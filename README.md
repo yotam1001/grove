@@ -48,7 +48,11 @@ Then open **Account → Connect Spotify**, and **Enable playback** for the separ
 | Path | What |
 | --- | --- |
 | `crates/grove` | The Grove app (UI glue, Spotify auth, Web API, librespot engine, jams) |
-| `ui/grove.slint` | Native interface |
+| `crates/grove/src/app/` | Window wiring: callbacks, the event poll loop, the jam timer, smoke screenshots |
+| `crates/grove/src/features/` | Feature controller, one file per area (search, collections, queue, jams…) |
+| `ui/grove.slint` | Native interface entry: `GroveWindow`, sidebar and page switching |
+| `ui/theme.slint`, `ui/components.slint`, `ui/model.slint`, `ui/player.slint` | Colour tokens, shared controls, row structs, player bar |
+| `ui/pages/` | One file per page (home and search lists, library, queue, now playing, jams, settings, account, playlist editor) |
 | `crates/jam` | Shared jam protocol, sync and transport (shared with Tide) |
 | `crates/playback`, `crates/core`, `crates/windows` | Vendored from Tide: mpv backend, shared types, Windows media integration |
 | `installer/`, `scripts/` | Per-user installer and packaging (still being decoupled from Tide's harness) |
