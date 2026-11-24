@@ -1,6 +1,6 @@
 fn main() {
-    println!("cargo:rerun-if-changed=../../assets/grove/logo.svg");
-    let svg = std::fs::read("../../assets/grove/logo.svg").expect("Grove logo");
+    println!("cargo:rerun-if-changed=../../assets/grove/logo-split-disc.svg");
+    let svg = std::fs::read("../../assets/grove/logo-split-disc.svg").expect("Grove logo");
     let tree = resvg::usvg::Tree::from_data(&svg, &Default::default()).expect("Valid Grove SVG");
     let mut pixmap = resvg::tiny_skia::Pixmap::new(256, 256).expect("Icon pixels");
     resvg::render(
