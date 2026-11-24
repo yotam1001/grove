@@ -622,6 +622,20 @@ mod tests {
         assert!(matched(&instrumental, &query).is_none());
     }
 
+    /// Live LRCLIB lookup; run by hand with `--ignored`. Never runs in CI.
+    #[test]
+    #[ignore]
+    fn live_lrclib_lookup() {
+        let query = Query {
+            title: "Bohemian Rhapsody - Remastered 2011".into(),
+            artist: "Queen".into(),
+            album: "A Night at the Opera (2011 Remaster)".into(),
+            duration_s: 355,
+        };
+        let found = lrclib()(&query).unwrap().unwrap();
+        assert!(found.synced && found.lines.len() > 20);
+    }
+
     #[test]
     fn fixture_is_offline_and_has_a_no_lyrics_case() {
         let fetch = fixture();
