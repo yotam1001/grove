@@ -24,6 +24,7 @@ pub fn start(
     let timer = slint::Timer::default();
     let weak = ui.as_weak();
     let mut step = 0;
+    let mut browse_started = false;
     let mut old_id = 0;
     timer.start(slint::TimerMode::Repeated,Duration::from_millis(300),move||{
         let Some(ui)=weak.upgrade()else{return;};
@@ -170,7 +171,8 @@ pub fn start(
                 features.borrow_mut().clear(&ui);
                 eprintln!("PASS: native feature callbacks, confirmed cross-service matching, stale-song and room guards, queue drawer, hide and related songs");
             },
-            _=>{if crate::app::system_review::step(&ui,&features,&out,step-20){slint::quit_event_loop().unwrap();}}
+            _ if browse_started=>return,
+            _=>{if crate::app::system_review::step(&ui,&features,&out,step-20){browse_started=true;super::browse_review::start(&ui, features.clone(), out.clone());}}
         }
         eprintln!("Feature review stage {step} passed");step+=1;
     });

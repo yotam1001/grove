@@ -70,6 +70,7 @@ impl Features {
             ui.set_current_hidden(hidden);
         }
         self.record_listening(state, elapsed, now);
+        self.browse_tick(ui);
         if self.art.poll() {
             self.render(ui);
             if !self.related.is_empty() {

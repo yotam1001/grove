@@ -127,6 +127,7 @@ pub fn start(
                         super::shell::set_playlist_artwork(&playlists);
                         ui.set_library_ready(true);
                         ui.set_feature_message("".into());
+                        feature_state.borrow_mut().library_ready(&ui, &playlists);
                         feature_state.borrow_mut().grant_ready(&ui);
                         if ui.get_jam_name()=="Listener"{ui.set_jam_name(name.clone().into());}
                         ui.set_account_name(name.into());

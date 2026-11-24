@@ -66,7 +66,7 @@ export component SettingsPage inherits VerticalLayout {
             if root.local-active : GroveButton { text: "Return to Spotify"; width: 160px; clicked => { root.stop-local(); } }
         }
         SettingSwitch { text: "Use media keys"; note: "Control Grove from your keyboard's media keys and Windows media controls while other apps are open."; checked: root.media-keys; toggled => { root.appearance("media"); } }
-        SettingSwitch { text: "Keep music playing"; note: "Continue with songs from Home when your queue ends."; checked: root.autoplay; toggled => { root.appearance("autoplay"); } }
+        SettingSwitch { text: "Keep music playing"; note: "When your queue ends, continue with more from the artists you were playing, or your Discovery mix."; checked: root.autoplay; toggled => { root.appearance("autoplay"); } }
         SettingSwitch {
             text: "Keep playing in the tray";
             note: GroveSystem.tray-supported ? "Closing the window hides Grove to the notification area. Right-click its tray icon for Play/pause, Next, Show and Quit." : "Available in the Windows app.";

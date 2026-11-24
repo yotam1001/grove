@@ -1,0 +1,61 @@
+// Browse surfaces: Home, Search, Library tabs, collection and artist pages.
+// Rows and callbacks live in one global so the window only routes pages.
+
+// A cover card: album, artist, playlist, track, "liked" or "mix". `index` is the
+// source row for tracks.
+export struct GroveCard { kind: string, uri: string, title: string, subtitle: string, cover: image, index: int }
+export struct GroveShelf { id: string, title: string, cards: [GroveCard] }
+// A track-table row. `index` is the source row Grove acts on, so duplicates and
+// hidden songs never shift actions onto the wrong entry.
+export struct GroveRow { index: int, number: string, title: string, artist: string, album: string, duration: string, uri: string, cover: image, saved: bool, playing: bool, artists: int }
+export struct GroveHeader { kind: string, label: string, title: string, subtitle: string, uri: string, cover: image, owned: bool, can-follow: bool, following: bool, note: string }
+
+export global GroveBrowse {
+    // Home (page 5)
+    in-out property <GroveCard> hero;
+    in-out property <string> hero-label;
+    in-out property <[GroveCard]> picks;
+    in-out property <[GroveShelf]> home-shelves;
+    // Collection (10) and artist (11) pages
+    in-out property <GroveHeader> header;
+    in-out property <[GroveRow]> rows;
+    in-out property <[GroveShelf]> artist-shelves;
+    in-out property <[GroveCard]> credited;
+    // Search (6): 0 All, 1 Songs, 2 Albums, 3 Artists, 4 Playlists
+    in-out property <int> search-tab;
+    in-out property <string> search-query;
+    in-out property <GroveCard> search-top;
+    in-out property <[GroveRow]> search-songs;
+    in-out property <[GroveShelf]> search-shelves;
+    in-out property <[GroveCard]> search-cards;
+    in-out property <bool> search-cards-more;
+    in-out property <[string]> recent-searches;
+    // Library (3): 0 Playlists, 1 Albums, 2 Artists, 3 History
+    in-out property <int> library-tab;
+    in-out property <string> library-filter;
+    in-out property <[GroveCard]> library-items;
+    in-out property <bool> library-items-more;
+    in-out property <string> library-note;
+    // Choosing one of several credited artists, inline in that row's menu.
+    in-out property <int> choice-row: -1;
+    in-out property <[GroveCard]> artist-choices;
+    // Web API cooldown for the page being browsed. Playback is never blocked.
+    in-out property <bool> cooldown-visible;
+    in-out property <bool> cooldown-quota;
+    in-out property <int> cooldown-seconds;
+    in-out property <string> cooldown-text;
+
+    callback open(string /* kind */, string /* uri */, string /* title */);
+    callback play(string /* kind */, string /* uri */);
+    callback row-action(string /* action */, int /* source index */);
+    callback play-all(bool /* shuffle */);
+    callback follow();
+    callback search-tab-changed(int);
+    callback search-more();
+    callback recent-search(string);
+    callback clear-recent();
+    callback library-tab-changed(int);
+    callback library-filter-changed(string);
+    callback library-next();
+    callback retry();
+}

@@ -1,7 +1,10 @@
 //! `--smoke-ui`: a scripted walk through the shell and every page that saves
 //! native screenshots. Synthetic fixtures only: no Spotify, credentials,
 //! network or preference writes. Lyrics come from the offline fixture.
-use crate::{GroveFeatureTrack, GroveJamTrack, GrovePlaylist, GroveTrack, GroveWindow};
+use crate::{
+    GroveBrowse, GroveCard, GroveFeatureTrack, GroveHeader, GroveJamTrack, GrovePlaylist, GroveRow,
+    GroveShelf, GroveTrack, GroveWindow,
+};
 use slint::{ComponentHandle, ModelRc, VecModel};
 use std::time::Duration;
 
@@ -137,6 +140,79 @@ fn queue(ui: &GroveWindow) {
     ui.set_autoplay(true);
 }
 
+fn card(kind: &str, title: &str, subtitle: &str, cover: Option<u8>) -> GroveCard {
+    GroveCard {
+        kind: kind.into(),
+        uri: format!("spotify:{kind}:fixture-{title}").into(),
+        title: title.into(),
+        subtitle: subtitle.into(),
+        cover: cover
+            .map(fixture_cover)
+            .map(|c| {
+                if kind == "artist" {
+                    crate::artwork::circle(&c)
+                } else {
+                    c
+                }
+            })
+            .unwrap_or_default(),
+        index: -1,
+    }
+}
+
+fn shelf(id: &str, title: &str, cards: Vec<GroveCard>) -> GroveShelf {
+    GroveShelf {
+        id: id.into(),
+        title: title.into(),
+        cards: ModelRc::new(VecModel::from(cards)),
+    }
+}
+
+fn rows(album: bool) -> ModelRc<GroveRow> {
+    let songs = [
+        ("Forest floor", "Grove review", "Rings of the Grove"),
+        (
+            "Evening light",
+            "Synthetic fixture, Featured guest",
+            "Low sun",
+        ),
+        ("Roots and rivers", "Grove review", "Rings of the Grove"),
+        (HEBREW, ARABIC, "Night market"),
+        ("Quiet chord", "Synthetic fixture", "Low sun"),
+    ];
+    ModelRc::new(VecModel::from(
+        songs
+            .iter()
+            .enumerate()
+            .map(|(i, (title, artist, record))| GroveRow {
+                index: i as i32,
+                number: (i + 1).to_string().into(),
+                title: (*title).into(),
+                artist: (*artist).into(),
+                album: if album { (*record).into() } else { "".into() },
+                duration: format!("3:{:02}", 10 + i * 7).into(),
+                uri: format!(
+                    "spotify:track:{}",
+                    char::from(b'a' + i as u8).to_string().repeat(22)
+                )
+                .into(),
+                cover: fixture_cover(i as u8),
+                saved: i == 1,
+                playing: i == 0,
+                artists: if i == 1 { 2 } else { 1 },
+            })
+            .collect::<Vec<_>>(),
+    ))
+}
+
+fn browse_ready(ui: &GroveWindow) {
+    ui.set_library_ready(true);
+    ui.set_authenticated(true);
+    ui.set_feature_busy(false);
+    ui.set_feature_message("".into());
+    ui.set_message("".into());
+}
+
 const HEBREW: &str = "שיר ארוך מאוד על יער ירוק ותקליט שבור שמתנגן כל הלילה";
 const ARABIC: &str = "فرقة الغابة الخضراء والأسطوانة المكسورة";
 
@@ -156,6 +232,7 @@ const STAGES: &[Stage] = &[
         signed_in(ui);
         ui.set_page(3);
     }),
+    // Liked Songs opens as a collection page (10).
     ("liked-songs", |ui| {
         ui.invoke_browse("liked".into(), "Liked Songs".into());
         ui.set_feature_tracks(ModelRc::new(VecModel::from(vec![
@@ -163,11 +240,12 @@ const STAGES: &[Stage] = &[
             feature("Evening light", "Synthetic fixture", 'b', 1),
             feature(HEBREW, ARABIC, 'c', 2),
         ])));
+        ui.global::<GroveBrowse>().set_rows(rows(true));
         ui.set_feature_busy(false);
         ui.set_feature_message("".into());
     }),
     ("library-narrow", |ui| {
-        ui.set_collection_uri("".into());
+        ui.set_page(3);
         size(ui, NARROW);
     }),
     // Back returns to Liked Songs, forward to the library list.
@@ -180,13 +258,211 @@ const STAGES: &[Stage] = &[
         ui.invoke_navigate_back();
     }),
     ("history-back", |ui| {
-        assert_eq!(ui.get_page(), 3);
+        assert_eq!(ui.get_page(), 10);
         assert_eq!(
-            ui.get_collection_uri().as_str(),
+            ui.global::<GroveBrowse>().get_header().uri.as_str(),
             "liked",
             "Back did not return to Liked Songs"
         );
         assert!(ui.get_can_go_forward());
+        ui.set_feature_busy(false);
+    }),
+    // Browse pages (#22-#25): Home, Search All, Library tabs, artist and collection.
+    ("", |ui| {
+        browse_ready(ui);
+        ui.set_page(5);
+    }),
+    ("browse-home", |ui| {
+        browse_ready(ui);
+        let g = ui.global::<GroveBrowse>();
+        let mut hero = card("track", "Forest floor", "Grove review", Some(0));
+        hero.index = 0;
+        g.set_hero(hero);
+        g.set_hero_label("ON REPEAT".into());
+        g.set_picks(ModelRc::new(VecModel::from(
+            [
+                ("Evening light", 1),
+                ("Roots and rivers", 2),
+                (HEBREW, 3),
+                ("Quiet chord", 0),
+                ("Morning light", 1),
+                ("Soft and slow", 2),
+            ]
+            .iter()
+            .enumerate()
+            .map(|(i, (t, c))| {
+                let mut p = card("track", t, "Synthetic fixture", Some(*c));
+                p.index = i as i32 + 1;
+                p
+            })
+            .collect::<Vec<_>>(),
+        )));
+        g.set_home_shelves(ModelRc::new(VecModel::from(vec![
+            shelf(
+                "made",
+                "Made for you",
+                vec![
+                    card(
+                        "mix",
+                        "Discovery mix",
+                        "Made for you from your listening",
+                        None,
+                    ),
+                    card("liked", "Liked Songs", "Your saved songs", None),
+                ],
+            ),
+            shelf(
+                "recent",
+                "Recently played",
+                (0..8u8)
+                    .map(|i| {
+                        card(
+                            "album",
+                            &format!("Record {}", i + 1),
+                            "2026 · Grove review",
+                            Some(i),
+                        )
+                    })
+                    .collect(),
+            ),
+            shelf(
+                "artists",
+                "Your top artists",
+                vec![
+                    card("artist", "Grove review", "Artist", Some(2)),
+                    card("artist", "Synthetic fixture", "Artist", Some(3)),
+                    card("artist", "Featured guest", "Artist", None),
+                ],
+            ),
+        ])));
+    }),
+    ("browse-home-narrow", |ui| size(ui, NARROW)),
+    ("", |ui| {
+        size(ui, WIDE);
+        ui.set_page(6);
+    }),
+    ("browse-search", |ui| {
+        browse_ready(ui);
+        ui.set_search_text("grove review".into());
+        let g = ui.global::<GroveBrowse>();
+        g.set_search_query("grove review".into());
+        g.set_search_tab(0);
+        g.set_search_top(card("artist", "Grove review", "Artist", Some(2)));
+        g.set_search_songs(rows(false));
+        g.set_search_shelves(ModelRc::new(VecModel::from(vec![
+            shelf(
+                "albums",
+                "Albums",
+                (0..5u8)
+                    .map(|i| {
+                        card(
+                            "album",
+                            &format!("Rings {}", i + 1),
+                            "2025 · Grove review",
+                            Some(i),
+                        )
+                    })
+                    .collect(),
+            ),
+            shelf(
+                "playlists",
+                "Playlists",
+                vec![card("playlist", "Evening rotation", "By you", Some(1))],
+            ),
+        ])));
+    }),
+    ("browse-search-narrow", |ui| size(ui, NARROW)),
+    ("", |ui| {
+        size(ui, WIDE);
+        ui.set_page(3);
+    }),
+    ("browse-library-albums", |ui| {
+        browse_ready(ui);
+        let g = ui.global::<GroveBrowse>();
+        g.set_library_tab(1);
+        g.set_library_items(ModelRc::new(VecModel::from(
+            (0..6u8)
+                .map(|i| {
+                    card(
+                        "album",
+                        &format!("Saved record {}", i + 1),
+                        "2024 · Grove review",
+                        Some(i),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        )));
+    }),
+    ("browse-library-narrow", |ui| size(ui, NARROW)),
+    ("", |ui| {
+        size(ui, WIDE);
+        ui.global::<GroveBrowse>().set_library_tab(0);
+        ui.set_page(11);
+    }),
+    ("browse-artist", |ui| {
+        browse_ready(ui);
+        let g = ui.global::<GroveBrowse>();
+        g.set_header(GroveHeader {
+            kind: "artist".into(),
+            label: "ARTIST".into(),
+            title: "Grove review".into(),
+            subtitle: "ambient · folk".into(),
+            uri: "spotify:artist:aaaaaaaaaaaaaaaaaaaaaa".into(),
+            cover: crate::artwork::circle(&fixture_cover(2)),
+            owned: false,
+            can_follow: true,
+            following: false,
+            note: "From recent releases".into(),
+        });
+        g.set_rows(rows(true));
+        g.set_artist_shelves(ModelRc::new(VecModel::from(vec![
+            shelf(
+                "albums",
+                "Albums",
+                (0..4u8)
+                    .map(|i| {
+                        card(
+                            "album",
+                            &format!("Rings {}", i + 1),
+                            "2025 · Grove review",
+                            Some(i),
+                        )
+                    })
+                    .collect(),
+            ),
+            shelf(
+                "singles",
+                "Singles and EPs",
+                vec![card("album", "Single file", "2026 · Grove review", Some(3))],
+            ),
+        ])));
+    }),
+    ("browse-artist-narrow", |ui| size(ui, NARROW)),
+    ("", |ui| {
+        size(ui, WIDE);
+        ui.set_page(10);
+    }),
+    ("browse-collection", |ui| {
+        browse_ready(ui);
+        let g = ui.global::<GroveBrowse>();
+        g.set_header(GroveHeader {
+            kind: "playlist".into(),
+            label: "PLAYLIST".into(),
+            title: "Evening rotation".into(),
+            subtitle: "By you · 5 songs".into(),
+            uri: "spotify:playlist:aaaaaaaaaaaaaaaaaaaaaa".into(),
+            cover: fixture_cover(1),
+            owned: true,
+            can_follow: false,
+            following: false,
+            note: "".into(),
+        });
+        g.set_rows(rows(true));
+    }),
+    ("browse-collection-narrow", |ui| size(ui, NARROW)),
+    ("", |ui| {
+        size(ui, WIDE);
+        ui.set_page(3);
     }),
     ("now-playing-lyrics", |ui| {
         playing(

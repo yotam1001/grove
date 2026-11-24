@@ -5,7 +5,11 @@ import { GroveButton, GroveSidebar, Rule } from "components.slint";
 import { PlayerBar } from "player.slint";
 import { PlaylistEditor } from "pages/playlist_editor.slint";
 import { AccountPage } from "pages/account.slint";
-import { FeatureListPage } from "pages/home_search.slint";
+import { FeatureListPage, HomePage } from "pages/home_search.slint";
+import { SearchPage } from "pages/search.slint";
+import { CollectionPage } from "pages/collection.slint";
+import { ArtistPage } from "pages/artist.slint";
+import { GroveBrowse, GroveCard, GroveShelf, GroveRow, GroveHeader } from "browse_model.slint";
 import { JamsPage } from "pages/jams.slint";
 import { LibraryPage } from "pages/library.slint";
 import { NowPlayingView } from "pages/now_playing.slint";
@@ -15,6 +19,7 @@ import { GroveSystem, CrashNotice } from "system.slint";
 
 export { GroveTrack, GrovePlaylist, GroveJamTrack, GroveFeatureTrack, GroveLyricLine, GroveTheme, GroveMotion }
 export { GroveSystem }
+export { GroveBrowse, GroveCard, GroveShelf, GroveRow, GroveHeader }
 
 // The window keeps every property and callback the Rust side uses; pages and the
 // player bar receive them through bindings.
@@ -240,7 +245,7 @@ export component GroveWindow inherits Window {
                 account-name: root.account-name;
                 playlists: root.playlists;
                 playlist-covers: root.playlist-covers;
-                open-collection(uri, title) => { root.page = 3; root.browse(uri, title); }
+                open-collection(uri, title) => { root.browse(uri, title); }
             }
             ScrollView {
                 private property <int> shown-page: root.page;
@@ -257,7 +262,8 @@ export component GroveWindow inherits Window {
                         GroveButton { icon: "back"; round: true; width: 34px; height: 34px; icon-size: 18px; label: "Back"; enabled: root.can-go-back; clicked => { root.navigate-back(); } }
                         GroveButton { icon: "forward"; round: true; width: 34px; height: 34px; icon-size: 18px; label: "Forward"; enabled: root.can-go-forward; clicked => { root.navigate-forward(); } }
                     }
-                    HorizontalLayout {
+                    // Collection (10) and artist (11) pages draw their own header.
+                    if root.page < 10 : HorizontalLayout {
                         spacing: 16px; vertical-stretch: 0;
                         VerticalLayout {
                             spacing: 6px;
@@ -292,7 +298,40 @@ export component GroveWindow inherits Window {
                         stop-local => { root.stop-local(); }
                         save-support => { root.save-support(); }
                     }
-                    if root.page == 5 || root.page == 6 || root.page == 7 || root.page == 9 || (root.page == 3 && root.collection-uri != "") : FeatureListPage {
+                    if root.page == 5 : HomePage {
+                        page <=> root.page;
+                        library-ready: root.library-ready;
+                        busy: root.feature-busy;
+                        can-play: root.authenticated && !root.following-guest;
+                        narrow: root.narrow;
+                        current-uri: root.current-uri;
+                        open-local => { root.open-local(); }
+                    }
+                    if root.page == 6 : SearchPage {
+                        search-text <=> root.search-text;
+                        library-ready: root.library-ready;
+                        busy: root.feature-busy;
+                        can-play: root.authenticated && !root.following-guest;
+                        narrow: root.narrow;
+                        feature-more: root.feature-more;
+                        search(a) => { root.search(a); }
+                        feature-next => { root.feature-next(); }
+                    }
+                    if root.page == 10 : CollectionPage {
+                        busy: root.feature-busy;
+                        can-play: root.authenticated && !root.following-guest;
+                        narrow: root.narrow;
+                        feature-more: root.feature-more;
+                        feature-back => { root.feature-back(); }
+                        feature-next => { root.feature-next(); }
+                    }
+                    if root.page == 11 : ArtistPage {
+                        busy: root.feature-busy;
+                        can-play: root.authenticated && !root.following-guest;
+                        narrow: root.narrow;
+                        feature-back => { root.feature-back(); }
+                    }
+                    if root.page == 7 || root.page == 9 : FeatureListPage {
                         page <=> root.page;
                         library-ready: root.library-ready;
                         feature-busy: root.feature-busy;
@@ -355,6 +394,9 @@ export component GroveWindow inherits Window {
                         library-note: root.library-note;
                         playlists: root.playlists;
                         playlists-more: root.playlists-more;
+                        busy: root.feature-busy;
+                        can-play: root.authenticated && !root.following-guest;
+                        narrow: root.narrow;
                         browse(a, b) => { root.browse(a, b); }
                         refresh-library => { root.refresh-library(); }
                         library-more => { root.library-more(); }

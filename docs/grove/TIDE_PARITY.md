@@ -10,22 +10,22 @@ or second Premium account works in production.
 
 | Tide feature | Grove status | Access / remaining difference |
 | --- | --- | --- |
-| Search | Implemented | Search music names or paste a Spotify link; track results in batches of 10; stale responses cannot replace newer searches. |
+| Search | Implemented | Pill-shaped field with recent searches (per account). Opens on an All view: Top result, Songs, Artists, Albums and Playlists; tabs page by 10, Spotify's February 2026 search limit. Paste a Spotify link to play it. Stale responses cannot replace newer searches. |
 | Direct music links | Implemented | Search/Now playing accept Spotify track, album, playlist and episode links. Queue → Add a song link resolves a track's name and adds it to Grove's queue. |
-| Home / refresh | Provider alternative | Recent top tracks, falling back to saved tracks; not YouTube's recommendation feed. |
-| My Supermix | No direct equivalent | Home is the available discovery entry point, not the same YouTube mix. |
-| Playlists / Liked Songs | Implemented | Library previews, pagination, Play and Shuffle for loaded songs. Spotify grant/app restrictions can limit playlist contents. |
-| Artist browsing | Provider alternative | Song menu/current artist open up to 50 tracks from three recent releases, with Play, Shuffle and Back. First credited artist only; artist choice remains open. |
-| Artwork | Implemented | Public Spotify CDN only; no OAuth on downloads; bounded worker, timeout, size/decode limits, 48-entry cache. Visible models retain their decoded images until changed. |
+| Home / refresh | Provider alternative | Card-based Home: a featured hero, quick picks and shelves (Made for you, Recently played, top artists, playlists, saved albums) from data the grant can read; each missing source is skipped. Cached per account for 20 minutes between launches. Not YouTube's recommendation feed. |
+| My Supermix | Provider alternative | Discovery mix, pinned in Library and on Home: top songs, top artists' newest releases and liked songs by those artists. Spotify's recommendation endpoints are closed to new apps. |
+| Playlists / Liked Songs | Implemented | Library tabs (Playlists, Albums, Artists, History) with a filter. Collection pages with a header (artwork, owner, count, Play/Shuffle) and a track table. Spotify only lists items of playlists you own or collaborate on; others show a note and play as a Spotify context. |
+| Artist browsing | Implemented | Artist pages: hero header, Play/Shuffle, Follow/Following through `/me/library`, popular songs (top tracks where allowed, otherwise from the newest releases), album and single shelves. Song menus offer a choice among credited artists. |
+| Artwork | Implemented | Public Spotify CDN only; no OAuth on downloads; bounded worker, timeout, size/decode limits, 160-entry cache of 192 px covers. Pages request a bounded number of covers and models update in place, so covers do not flicker or refetch in a loop. |
 | Song menus | Implemented | Play, Play next, Add to queue, Like/Unlike, View artist, Hide and playlist editing. Remove appears only for owned playlists and asks for confirmation. |
 | Likes / dislikes | Provider alternative | Spotify Save/Unsave including current player. Hide is a Grove preference, not a Spotify dislike. |
-| Playlist editing | Different semantics | Choose an owned playlist or paste its link. Ownership is checked before writes. Removal explicitly affects all matching copies, not Tide's exact duplicate entry. No automatic retry of unconfirmed writes. |
+| Playlist editing | Implemented | Choose an owned playlist or paste its link. Ownership is checked before writes. Remove deletes the exact entry by position and `snapshot_id`; if Spotify removes every copy, Grove restores the others. Unconfirmed writes re-read the playlist and retry once only if nothing changed. |
 | Listening history | Provider alternative | Opt-in session history: up to 100 songs after 30 seconds of actual playback; paused/loading time, seek jumps and long event-loop stalls do not count. Sign-out clears it. No fabricated Spotify history write. |
 | Editable queue | Implemented | Queue drawer beside or over the content: Now playing, your manual queue with drag handles (plus up/down and remove), an autoplay section that skips hidden songs, Spotify's own queue, search within the queue and related songs that never replace playback. Entries remain until starts are confirmed. |
 | Spotify Connect upcoming | Implemented, separate | Read-only provider queue shown when populated. Link additions enter Grove's editable queue. A Grove play request creates a new playback context; preserving a prior Connect context is not promised. |
 | Play / pause / previous / next / seek / volume | Implemented | Native controls, availability and jam-guest guards, persisted volume. Real Spotify audio remains unverified in this audit. |
 | Shuffle / repeat | Implemented | Spotify context controls plus selection Shuffle for loaded Grove rows. Partial option events preserve other options. |
-| Autoplay | Partial alternative | Optional continuation cycles through loaded Home rotation. No dynamic refill, stream prefetch or recommendation sections yet. |
+| Autoplay | Partial alternative | Refills before the rotation runs out, continuing from the artists of the playlist, album or artist being played, or the Discovery mix; skips songs heard this session, in history, queued or hidden. No stream prefetch. |
 | Loading / retry / quality | Partial | Loading, play/pause, errors and reconnect feedback. Source codec/bitrate/sample-rate and Tide-style output recovery remain open; quality is not guessed. |
 | Light / dark | Implemented | Settings; persisted independently from window size. |
 | Normal / Compact / Mini / restore | Implemented | Settings layout and mini/restore; previous expanded size is retained. |

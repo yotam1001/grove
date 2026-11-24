@@ -1,0 +1,528 @@
+// Cards, shelves, headers and the track table for Grove's browse pages.
+// Covers keep a fixed frame and placeholder, so artwork arriving later never
+// moves the layout.
+import { GroveTheme, GroveMotion } from "theme.slint";
+import { GroveLine } from "components.slint";
+import { GroveCard, GroveShelf, GroveRow, GroveHeader, GroveBrowse } from "browse_model.slint";
+
+export component BrowseIcon inherits Path {
+    in property <string> kind;
+    in property <color> ink: GroveTheme.text;
+    width: 18px; height: 18px;
+    viewbox-width: 24; viewbox-height: 24;
+    fill: root.kind == "play" || root.kind == "heart-filled" ? root.ink : transparent;
+    stroke: root.ink;
+    stroke-width: root.kind == "more" ? 3px : 1.8px;
+    commands: root.kind == "play" ? "M 7 4 L 20 12 L 7 20 Z"
+        : root.kind == "shuffle" ? "M 2 7 L 6 7 C 12 7 12 17 18 17 L 22 17 M 19 14 L 22 17 L 19 20 M 2 17 L 6 17 C 8 17 9.5 15.5 10.5 13.5 M 13.5 10.5 C 14.5 8.5 16 7 18 7 L 22 7 M 19 4 L 22 7 L 19 10"
+        : root.kind == "more" ? "M 4 12 L 5 12 M 11.5 12 L 12.5 12 M 19 12 L 20 12"
+        : root.kind == "left" ? "M 15 5 L 8 12 L 15 19"
+        : root.kind == "right" ? "M 9 5 L 16 12 L 9 19"
+        : root.kind == "close" ? "M 6 6 L 18 18 M 18 6 L 6 18"
+        : root.kind == "search" ? "M 16 10 A 6 6 0 1 1 4 10 A 6 6 0 1 1 16 10 M 14.5 14.5 L 21 21"
+        : root.kind == "clock" ? "M 21 12 A 9 9 0 1 1 3 12 A 9 9 0 1 1 21 12 M 12 7 L 12 12 L 15.5 14"
+        : root.kind == "heart" || root.kind == "heart-filled" ? "M 20.8 4.6 A 5.5 5.5 0 0 0 13.1 4.6 L 12 5.7 L 10.9 4.6 A 5.5 5.5 0 0 0 3.2 12.4 L 12 21.2 L 20.8 12.4 A 5.5 5.5 0 0 0 20.8 4.6 Z"
+        : root.kind == "album" ? "M 21 12 A 9 9 0 1 1 3 12 A 9 9 0 1 1 21 12 M 14 12 A 2 2 0 1 1 10 12 A 2 2 0 1 1 14 12"
+        : root.kind == "artist" ? "M 16 8 A 4 4 0 1 1 8 8 A 4 4 0 1 1 16 8 M 4 21 C 4 15 20 15 20 21"
+        : root.kind == "playlist" ? "M 3 6 L 15 6 M 3 12 L 15 12 M 3 18 L 11 18 M 17 18 L 17 8 L 21 7"
+        : root.kind == "mix" ? "M 3 9 L 3 15 M 7 5 L 7 19 M 12 2 L 12 22 M 17 6 L 17 18 M 21 10 L 21 14"
+        : root.kind == "liked" ? "M 20.8 4.6 A 5.5 5.5 0 0 0 13.1 4.6 L 12 5.7 L 10.9 4.6 A 5.5 5.5 0 0 0 3.2 12.4 L 12 21.2 L 20.8 12.4 A 5.5 5.5 0 0 0 20.8 4.6 Z"
+        : root.kind == "plus" ? "M 12 5 L 12 19 M 5 12 L 19 12"
+        : root.kind == "check" ? "M 5 12 L 10 17 L 19 7"
+        : root.kind == "retry" ? "M 20 12 A 8 8 0 1 1 17.7 6.3 M 20 3 L 20 8 L 15 8"
+        : "M 9 18 L 9 5 L 21 2 L 21 15 M 9 18 C 9 23 1 24 1 20 C 1 17 9 15 9 18 M 21 15 C 21 20 13 21 13 17 C 13 14 21 12 21 15";
+}
+
+// A square (or round, for artists) cover with a stable placeholder.
+export component CoverArt inherits Rectangle {
+    in property <image> source;
+    in property <string> kind: "track";
+    private property <bool> generated: root.kind == "liked" || root.kind == "mix";
+    border-radius: root.kind == "artist" ? self.width / 2 : max(4px, self.width * 0.05);
+    clip: true;
+    background: root.kind == "liked" ? @linear-gradient(135deg, #1a7a4a 0%, #35df82 100%)
+        : root.kind == "mix" ? @linear-gradient(135deg, #0f3a26 0%, #5fe0a0 100%)
+        : GroveTheme.pressed;
+    if root.source.width == 0 || root.generated : BrowseIcon {
+        kind: root.kind == "track" ? "note" : root.kind;
+        x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+        width: parent.width * 0.36; height: self.width;
+        ink: #ffffff.with-alpha(root.generated ? 1 : 0.7);
+        fill: root.kind == "liked" ? #ffffff : transparent;
+    }
+    if root.source.width > 0 && !root.generated : Image {
+        width: parent.width; height: parent.height;
+        source: root.source; image-fit: cover;
+    }
+}
+
+// Round icon button with hover and focus states.
+export component IconButton inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <bool> enabled: true;
+    in property <bool> active: false;
+    in property <bool> filled: false;
+    callback clicked;
+    width: 36px; height: self.width;
+    border-radius: self.height / 2;
+    background: !root.enabled ? transparent : root.filled ? (touch.pressed ? GroveTheme.accent-pressed : GroveTheme.accent) : touch.pressed ? GroveTheme.pressed : touch.has-hover ? GroveTheme.hover : transparent;
+    border-width: focus.has-focus ? 2px : 0px;
+    border-color: GroveTheme.accent;
+    animate background { duration: GroveMotion.fast; }
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    forward-focus: focus;
+    BrowseIcon {
+        kind: root.icon;
+        x: (parent.width - self.width) / 2 + (root.icon == "play" ? 1px : 0px); y: (parent.height - self.height) / 2;
+        width: parent.width * 0.5; height: self.width;
+        ink: !root.enabled ? GroveTheme.disabled : root.filled ? GroveTheme.on-accent : root.active ? GroveTheme.accent : GroveTheme.text;
+    }
+    touch := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+    focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Return || event.text == " " { root.clicked(); return accept; }
+            return reject;
+        }
+    }
+}
+
+// Pill button: accent for the primary action, outlined otherwise.
+export component PillButton inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <bool> primary: false;
+    in property <bool> enabled: true;
+    in property <bool> selected: false;
+    callback clicked;
+    height: 36px;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
+    min-width: pill-layout.min-width;
+    border-radius: self.height / 2;
+    background: !root.enabled ? GroveTheme.hover : root.primary || root.selected ? (touch.pressed ? GroveTheme.accent-pressed : GroveTheme.accent) : touch.pressed ? GroveTheme.pressed : touch.has-hover ? GroveTheme.hover : transparent;
+    border-width: focus.has-focus ? 2px : root.primary || root.selected ? 0px : 1px;
+    border-color: focus.has-focus ? GroveTheme.focus : GroveTheme.border;
+    animate background { duration: GroveMotion.fast; }
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    forward-focus: focus;
+    pill-layout := HorizontalLayout {
+        padding-left: 16px; padding-right: 16px; spacing: 8px;
+        alignment: center;
+        if root.icon != "" : BrowseIcon {
+            y: (parent.height - self.height) / 2;
+            kind: root.icon; width: 16px; height: 16px;
+            ink: !root.enabled ? GroveTheme.disabled : root.primary || root.selected ? GroveTheme.on-accent : GroveTheme.text;
+        }
+        Text {
+            text: root.text; vertical-alignment: center; font-size: 13px; font-weight: 600;
+            color: !root.enabled ? GroveTheme.disabled : root.primary || root.selected ? GroveTheme.on-accent : GroveTheme.text;
+        }
+    }
+    touch := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+    focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Return || event.text == " " { root.clicked(); return accept; }
+            return reject;
+        }
+    }
+}
+
+// A cover card for shelves and grids. Hover lifts the cover and offers Play.
+export component CardTile inherits Rectangle {
+    in property <GroveCard> card;
+    in property <bool> can-play: true;
+    callback open(GroveCard);
+    callback play(GroveCard);
+    height: self.width + 62px;
+    border-radius: GroveTheme.radius-md;
+    background: touch.has-hover ? GroveTheme.hover : transparent;
+    animate background { duration: GroveMotion.fast; }
+    accessible-role: button;
+    accessible-label: root.card.title;
+    accessible-description: root.card.subtitle;
+    accessible-action-default => { root.open(root.card); }
+    touch := TouchArea {
+        clicked => { root.open(root.card); }
+        art := CoverArt {
+            x: 8px; y: touch.has-hover ? 6px : 8px;
+            width: root.width - 16px; height: self.width;
+            source: root.card.cover; kind: root.card.kind;
+            animate y { duration: GroveMotion.fast; easing: ease-out; }
+        }
+        if touch.has-hover && root.can-play && root.card.kind != "artist" : IconButton {
+            x: art.x + art.width - self.width - 8px; y: art.y + art.height - self.height - 8px;
+            width: 42px; icon: "play"; filled: true; label: "Play " + root.card.title;
+            clicked => { root.play(root.card); }
+        }
+        GroveLine {
+            x: 10px; y: art.y + art.height + 6px; width: root.width - 20px;
+            text: root.card.title; ink: GroveTheme.text; font-size: 14px; font-weight: 600;
+            align: root.card.kind == "artist" ? center : left;
+        }
+        GroveLine {
+            x: 10px; y: art.y + art.height + 27px; width: root.width - 20px;
+            text: root.card.subtitle; ink: GroveTheme.muted; font-size: 12px;
+            align: root.card.kind == "artist" ? center : left;
+        }
+    }
+}
+
+// One horizontal shelf. Arrows page through cards that slide into place.
+export component Shelf inherits VerticalLayout {
+    in property <GroveShelf> shelf;
+    in property <length> card-width: 168px;
+    in property <bool> can-play: true;
+    callback open(GroveCard);
+    callback play(GroveCard);
+    private property <int> first: 0;
+    private property <length> step: root.card-width + 6px;
+    private property <int> fits: max(1, floor((self.width + 6px) / root.step));
+    changed shelf => { root.first = 0; }
+    spacing: 6px;
+    HorizontalLayout {
+        height: 34px; spacing: 6px;
+        Text { text: root.shelf.title; color: GroveTheme.text; font-size: 20px; font-weight: 650; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+        // Always laid out (so the width never depends on itself); hidden when all cards fit.
+        IconButton { icon: "left"; label: "Previous " + root.shelf.title; opacity: root.shelf.cards.length > root.fits ? 1 : 0; enabled: root.first > 0 && root.shelf.cards.length > root.fits; clicked => { root.first = max(0, root.first - root.fits); } }
+        IconButton { icon: "right"; label: "More " + root.shelf.title; opacity: root.shelf.cards.length > root.fits ? 1 : 0; enabled: root.first + root.fits < root.shelf.cards.length; clicked => { root.first = min(root.shelf.cards.length - root.fits, root.first + root.fits); } }
+    }
+    Rectangle {
+        height: root.card-width + 62px;
+        clip: true;
+        for card[i] in root.shelf.cards : CardTile {
+            x: (i - root.first) * root.step; y: 0px;
+            width: root.card-width;
+            card: card; can-play: root.can-play;
+            animate x { duration: GroveMotion.base; easing: ease-out; }
+            open(c) => { root.open(c); }
+            play(c) => { root.play(c); }
+        }
+    }
+}
+
+// A responsive grid of cards; positions are computed so nothing reflows on load.
+export component CardGrid inherits Rectangle {
+    in property <[GroveCard]> cards;
+    in property <length> min-card: 150px;
+    in property <bool> can-play: true;
+    callback open(GroveCard);
+    callback play(GroveCard);
+    private property <length> gap: 6px;
+    private property <int> columns: max(2, floor((self.width + root.gap) / (root.min-card + root.gap)));
+    private property <length> card-width: (self.width - (root.columns - 1) * root.gap) / root.columns;
+    height: ceil(root.cards.length / root.columns) * (root.card-width + 62px + root.gap);
+    for card[i] in root.cards : CardTile {
+        x: mod(i, root.columns) * (root.card-width + root.gap);
+        y: floor(i / root.columns) * (root.card-width + 62px + root.gap);
+        width: root.card-width;
+        card: card; can-play: root.can-play;
+        open(c) => { root.open(c); }
+        play(c) => { root.play(c); }
+    }
+}
+
+// Compact song card for Home's quick picks.
+export component PickCard inherits Rectangle {
+    in property <GroveCard> card;
+    in property <bool> can-play: true;
+    in property <bool> playing: false;
+    callback play(GroveCard);
+    callback more(GroveCard);
+    height: 60px;
+    border-radius: GroveTheme.radius-sm;
+    background: touch.has-hover ? GroveTheme.hover : GroveTheme.raised;
+    clip: true;
+    animate background { duration: GroveMotion.fast; }
+    accessible-role: button;
+    accessible-label: "Play " + root.card.title;
+    accessible-action-default => { root.play(root.card); }
+    touch := TouchArea {
+        enabled: root.can-play;
+        clicked => { root.play(root.card); }
+        CoverArt { x: 0px; y: 0px; width: root.height; height: root.height; border-radius: 0px; source: root.card.cover; kind: "track"; }
+        GroveLine {
+            x: root.height + 12px; y: 9px; width: root.width - root.height - 64px;
+            text: root.card.title; ink: root.playing ? GroveTheme.accent : GroveTheme.text; font-size: 14px; font-weight: 600;
+        }
+        GroveLine {
+            x: root.height + 12px; y: 31px; width: root.width - root.height - 64px;
+            text: root.card.subtitle; ink: GroveTheme.muted; font-size: 12px;
+        }
+        if touch.has-hover && root.can-play : IconButton {
+            x: root.width - self.width - 10px; y: (root.height - self.height) / 2;
+            icon: "play"; filled: true; label: "Play " + root.card.title;
+            clicked => { root.play(root.card); }
+        }
+    }
+}
+
+// Home's featured selection.
+export component HeroCard inherits Rectangle {
+    in property <GroveCard> card;
+    in property <string> label;
+    in property <bool> narrow;
+    in property <bool> can-play;
+    callback play;
+    callback shuffle;
+    height: root.narrow ? 172px : 228px;
+    border-radius: GroveTheme.radius-lg;
+    clip: true;
+    background: GroveTheme.light ? @linear-gradient(90deg, #cfeedd 0%, #f2f7f3 100%) : @linear-gradient(90deg, #15492f 0%, #1d2022 100%);
+    HorizontalLayout {
+        padding: root.narrow ? 16px : 24px; spacing: root.narrow ? 16px : 26px;
+        CoverArt { width: root.height - (root.narrow ? 32px : 48px); height: self.width; source: root.card.cover; kind: root.card.kind; }
+        VerticalLayout {
+            alignment: center; spacing: root.narrow ? 4px : 8px;
+            Text { text: root.label; color: GroveTheme.accent; font-size: 12px; font-weight: 700; letter-spacing: 1px; overflow: elide; }
+            GroveLine { text: root.card.title; ink: GroveTheme.text; font-size: root.narrow ? 22px : 34px; font-weight: 750; }
+            GroveLine { text: root.card.subtitle; ink: GroveTheme.secondary; font-size: 14px; }
+            HorizontalLayout {
+                spacing: 10px; alignment: start; padding-top: root.narrow ? 4px : 10px;
+                PillButton { text: "Play"; icon: "play"; primary: true; enabled: root.can-play; clicked => { root.play(); } }
+                PillButton { text: "Shuffle"; icon: "shuffle"; enabled: root.can-play; clicked => { root.shuffle(); } }
+            }
+        }
+    }
+}
+
+// Header for a playlist, album, Liked Songs, mix or artist (round cover).
+export component CollectionHeader inherits Rectangle {
+    in property <GroveHeader> header;
+    in property <bool> narrow;
+    in property <bool> can-play;
+    in property <bool> has-rows;
+    callback play-all(bool);
+    callback follow;
+    min-height: header-layout.min-height;
+    border-radius: GroveTheme.radius-lg;
+    background: GroveTheme.light ? @linear-gradient(180deg, #d6eee0 0%, #f4f7f4 100%) : @linear-gradient(180deg, #17402b 0%, #141617 100%);
+    header-layout := HorizontalLayout {
+        padding: root.narrow ? 16px : 24px; spacing: root.narrow ? 16px : 26px;
+        CoverArt { width: root.narrow ? 112px : 192px; height: self.width; source: root.header.cover; kind: root.header.kind; }
+        VerticalLayout {
+            alignment: end; spacing: root.narrow ? 4px : 8px;
+            Text { text: root.header.label; color: GroveTheme.secondary; font-size: 12px; font-weight: 700; letter-spacing: 1px; }
+            GroveLine { text: root.header.title; ink: GroveTheme.text; font-size: root.narrow ? 24px : 44px; font-weight: 800; }
+            GroveLine { text: root.header.subtitle; ink: GroveTheme.secondary; font-size: 13px; }
+            HorizontalLayout {
+                spacing: 12px; alignment: start; padding-top: root.narrow ? 6px : 12px;
+                IconButton { width: root.narrow ? 44px : 52px; icon: "play"; filled: true; label: "Play " + root.header.title; enabled: root.can-play && root.has-rows; clicked => { root.play-all(false); } }
+                IconButton { width: root.narrow ? 40px : 44px; icon: "shuffle"; label: "Shuffle " + root.header.title; enabled: root.can-play && root.has-rows; clicked => { root.play-all(true); } }
+                if root.header.can-follow : PillButton {
+                    y: (parent.height - self.height) / 2;
+                    text: root.header.following ? "Following" : "Follow"; icon: root.header.following ? "check" : "plus"; selected: root.header.following;
+                    clicked => { root.follow(); }
+                }
+            }
+        }
+    }
+}
+
+export component TrackRow inherits Rectangle {
+    in property <GroveRow> item;
+    in property <bool> show-album: true;
+    in property <bool> can-play;
+    in property <bool> can-remove;
+    in property <bool> busy;
+    callback action(string, int);
+    private property <bool> menu: false;
+    private property <bool> choosing: GroveBrowse.choice-row == root.item.index && root.menu;
+    height: root.menu ? 104px : 56px;
+    border-radius: GroveTheme.radius-sm;
+    background: root.menu ? GroveTheme.selected : touch.has-hover ? GroveTheme.hover : transparent;
+    animate background { duration: GroveMotion.fast; }
+    touch := TouchArea {
+        double-clicked => { if root.can-play { root.action("play", root.item.index); } }
+        HorizontalLayout {
+            x: 0px; y: 0px; width: root.width; height: 56px;
+            padding-left: 8px; padding-right: 8px; spacing: 12px;
+            Rectangle {
+                width: 28px;
+                if !touch.has-hover : Text { width: parent.width; height: parent.height; text: root.item.number; color: root.item.playing ? GroveTheme.accent : GroveTheme.muted; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; }
+                if touch.has-hover : IconButton { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: 28px; icon: "play"; label: "Play " + root.item.title; enabled: root.can-play; clicked => { root.action("play", root.item.index); } }
+            }
+            CoverArt { y: 8px; width: 40px; height: 40px; source: root.item.cover; kind: "track"; }
+            // Zero preferred widths make the columns split by stretch alone,
+            // so every row lines up with the header.
+            VerticalLayout {
+                horizontal-stretch: 3; preferred-width: 0px; min-width: 0px; alignment: center; spacing: 3px;
+                GroveLine { text: root.item.title; ink: root.item.playing ? GroveTheme.accent : GroveTheme.text; font-size: 14px; font-weight: 500; }
+                GroveLine { text: root.item.artist; ink: GroveTheme.muted; font-size: 12px; }
+            }
+            if root.show-album : Rectangle {
+                horizontal-stretch: 2; preferred-width: 0px; min-width: 0px;
+                GroveLine { y: (parent.height - self.height) / 2; width: parent.width; text: root.item.album; ink: GroveTheme.muted; font-size: 13px; }
+            }
+            IconButton {
+                y: 10px; width: 36px; icon: root.item.saved ? "heart-filled" : "heart"; active: root.item.saved;
+                label: root.item.saved ? "Remove from Liked Songs" : "Save to Liked Songs";
+                opacity: touch.has-hover || root.item.saved || root.menu ? 1 : 0;
+                enabled: !root.busy;
+                clicked => { root.action(root.item.saved ? "Unsave" : "Save", root.item.index); }
+            }
+            Text { width: 42px; text: root.item.duration; color: GroveTheme.muted; font-size: 13px; vertical-alignment: center; horizontal-alignment: right; }
+            IconButton {
+                y: 10px; width: 36px; icon: "more"; label: "More actions for " + root.item.title;
+                opacity: touch.has-hover || root.menu ? 1 : 0.35;
+                clicked => { root.menu = !root.menu; GroveBrowse.choice-row = -1; }
+            }
+        }
+        if root.menu && !root.choosing : HorizontalLayout {
+            x: 48px; y: 58px; width: root.width - 56px; height: 36px; spacing: 8px; alignment: start;
+            PillButton { text: "Play next"; enabled: !root.busy; clicked => { root.action("Next", root.item.index); root.menu = false; } }
+            PillButton { text: "Add to queue"; enabled: !root.busy; clicked => { root.action("Queue", root.item.index); root.menu = false; } }
+            PillButton { text: root.item.artists > 1 ? "Choose artist" : "Go to artist"; enabled: !root.busy; clicked => { if root.item.artists > 1 { GroveBrowse.choice-row = root.item.index; root.action("Artists", root.item.index); } else { root.action("Artist", root.item.index); root.menu = false; } } }
+            if root.width > 560px : PillButton { text: "Song radio"; enabled: !root.busy; clicked => { root.action("Radio", root.item.index); root.menu = false; } }
+            PillButton { text: "Add to playlist"; enabled: !root.busy; clicked => { root.action("Playlist", root.item.index); root.menu = false; } }
+            PillButton { text: root.can-remove ? "Remove from playlist" : "Hide"; enabled: !root.busy; clicked => { root.action(root.can-remove ? "Remove" : "Hide", root.item.index); root.menu = false; } }
+        }
+        if root.choosing : HorizontalLayout {
+            x: 48px; y: 58px; width: root.width - 56px; height: 36px; spacing: 8px; alignment: start;
+            Text { text: "Credited:"; color: GroveTheme.muted; font-size: 12px; vertical-alignment: center; }
+            for artist in GroveBrowse.artist-choices : PillButton { text: artist.title; icon: "artist"; clicked => { GroveBrowse.open("artist", artist.uri, artist.title); root.menu = false; GroveBrowse.choice-row = -1; } }
+            IconButton { width: 32px; icon: "close"; label: "Cancel"; clicked => { GroveBrowse.choice-row = -1; } }
+        }
+    }
+}
+
+// The track table: #, title and artist, album, duration and hover actions.
+export component TrackTable inherits VerticalLayout {
+    in property <[GroveRow]> rows;
+    in property <bool> show-album: true;
+    in property <bool> show-header: true;
+    in property <bool> can-play;
+    in property <bool> can-remove;
+    in property <bool> busy;
+    callback action(string, int);
+    spacing: 2px;
+    if root.show-header : Rectangle {
+        height: 36px;
+        HorizontalLayout {
+            padding-left: 8px; padding-right: 8px; spacing: 12px;
+            Text { width: 28px; text: "#"; color: GroveTheme.muted; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
+            Rectangle { width: 40px; }
+            Text { horizontal-stretch: 3; preferred-width: 0px; min-width: 0px; text: "Title"; color: GroveTheme.muted; font-size: 12px; vertical-alignment: center; }
+            if root.show-album : Text { horizontal-stretch: 2; preferred-width: 0px; min-width: 0px; text: "Album"; color: GroveTheme.muted; font-size: 12px; vertical-alignment: center; }
+            Rectangle { width: 36px; }
+            Rectangle {
+                width: 42px;
+                BrowseIcon { kind: "clock"; x: parent.width - self.width; y: (parent.height - self.height) / 2; width: 15px; height: 15px; ink: GroveTheme.muted; }
+            }
+            Rectangle { width: 36px; }
+        }
+        Rectangle { y: parent.height - 1px; height: 1px; background: GroveTheme.line; }
+    }
+    for row in root.rows : TrackRow {
+        item: row; show-album: root.show-album;
+        can-play: root.can-play; can-remove: root.can-remove; busy: root.busy;
+        action(a, i) => { root.action(a, i); }
+    }
+}
+
+// A list entry for Library tabs: cover, title, subtitle.
+export component ListEntry inherits Rectangle {
+    in property <GroveCard> card;
+    callback open(GroveCard);
+    height: 64px;
+    border-radius: GroveTheme.radius-sm;
+    background: touch.has-hover ? GroveTheme.hover : transparent;
+    animate background { duration: GroveMotion.fast; }
+    accessible-role: button;
+    accessible-label: root.card.title;
+    accessible-description: root.card.subtitle;
+    accessible-action-default => { root.open(root.card); }
+    touch := TouchArea {
+        clicked => { root.open(root.card); }
+        HorizontalLayout {
+            x: 0px; y: 0px; width: root.width; height: root.height;
+            padding: 8px; spacing: 14px;
+            CoverArt { width: 48px; height: 48px; source: root.card.cover; kind: root.card.kind; }
+            VerticalLayout {
+                alignment: center; spacing: 3px; horizontal-stretch: 1;
+                GroveLine { text: root.card.title; ink: GroveTheme.text; font-size: 15px; font-weight: 500; }
+                GroveLine { text: root.card.subtitle; ink: GroveTheme.muted; font-size: 12px; }
+            }
+            Rectangle {
+                width: 16px;
+                BrowseIcon { y: (parent.height - self.height) / 2; kind: "right"; ink: GroveTheme.muted; width: 16px; height: 16px; }
+            }
+        }
+    }
+}
+
+// Rounded search field with a clear button.
+export component PillSearch inherits Rectangle {
+    in-out property <string> text;
+    in property <string> placeholder;
+    out property <bool> focused: input.has-focus;
+    callback accepted(string);
+    callback cleared;
+    height: 48px;
+    border-radius: self.height / 2;
+    background: GroveTheme.surface;
+    border-width: input.has-focus ? 2px : 1px;
+    border-color: input.has-focus ? GroveTheme.focus : touch.has-hover ? GroveTheme.muted : GroveTheme.border;
+    forward-focus: input;
+    touch := TouchArea { mouse-cursor: MouseCursor.text; clicked => { input.focus(); } }
+    HorizontalLayout {
+        padding-left: 18px; padding-right: 6px; spacing: 10px;
+        BrowseIcon { y: (parent.height - self.height) / 2; kind: "search"; ink: GroveTheme.muted; width: 20px; height: 20px; }
+        Rectangle {
+            horizontal-stretch: 1;
+            input := TextInput {
+                width: parent.width; height: parent.height;
+                text <=> root.text; single-line: true; vertical-alignment: center;
+                color: GroveTheme.text; font-size: 15px;
+                selection-background-color: GroveTheme.accent.with-alpha(0.35);
+                accessible-label: root.placeholder;
+                accepted => { root.accepted(self.text); }
+            }
+            if root.text == "" : Text { width: parent.width; height: parent.height; text: root.placeholder; color: GroveTheme.muted; font-size: 15px; vertical-alignment: center; overflow: elide; }
+        }
+        if root.text != "" : IconButton { y: (parent.height - self.height) / 2; icon: "close"; label: "Clear search"; clicked => { root.text = ""; root.cleared(); input.focus(); } }
+    }
+}
+
+// Tabs as chips; the selected one is filled with Grove green.
+export component ChipTabs inherits HorizontalLayout {
+    in property <[string]> tabs;
+    in property <int> selected;
+    callback chosen(int);
+    spacing: 8px; alignment: start;
+    for tab[i] in root.tabs : PillButton { height: 32px; text: tab; selected: i == root.selected; clicked => { root.chosen(i); } }
+}
+
+// Web API cooldown with the remaining time and a Retry that honours Retry-After.
+export component CooldownBanner inherits Rectangle {
+    min-height: banner-layout.min-height;
+    border-radius: GroveTheme.radius-md;
+    background: GroveTheme.light ? #fbf1df : #2b2418;
+    border-width: 1px;
+    border-color: GroveTheme.warning.with-alpha(0.5);
+    banner-layout := HorizontalLayout {
+        padding: 12px; padding-left: 16px; spacing: 12px;
+        VerticalLayout {
+            alignment: center; spacing: 2px; horizontal-stretch: 1;
+            Text { text: GroveBrowse.cooldown-quota ? "Spotify request quota used up" : "Spotify needs a short break"; color: GroveTheme.warning; font-size: 13px; font-weight: 700; }
+            Text { text: GroveBrowse.cooldown-text; color: GroveTheme.secondary; font-size: 12px; wrap: word-wrap; }
+        }
+        PillButton {
+            y: (parent.height - self.height) / 2;
+            text: GroveBrowse.cooldown-seconds > 0 ? "Retry in " + GroveBrowse.cooldown-seconds + " s" : "Retry";
+            icon: "retry"; enabled: GroveBrowse.cooldown-seconds <= 0;
+            clicked => { GroveBrowse.retry(); }
+        }
+    }
+}
+
+// A heading row used by pages for sections.
+export component SectionTitle inherits Text {
+    color: GroveTheme.text; font-size: GroveTheme.type-title; font-weight: 700; overflow: elide;
+}

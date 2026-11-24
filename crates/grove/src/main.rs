@@ -3,6 +3,7 @@ mod app;
 mod artwork;
 mod auth;
 mod beta;
+mod browse_cache;
 mod crash;
 mod credentials;
 mod engine;
