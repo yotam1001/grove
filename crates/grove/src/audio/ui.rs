@@ -33,7 +33,7 @@ pub struct AudioUi {
     offline: bool,
     tx: RequestSender,
     state: Rc<RefCell<State>>,
-    features: Rc<RefCell<Features>>,
+    pub(super) features: Rc<RefCell<Features>>,
     pub sleep: SleepTimer,
     recovery: OutputRecovery,
     devices: Vec<DeviceChoice>,
@@ -530,6 +530,18 @@ impl AudioUi {
             self.last_uri = state.track.uri.clone();
             self.recovery.cancel();
         }
+        // Grove's queue head, so the sink knows how this song should end.
+        let next = if ui.get_jam_connected() || ui.get_local_active() {
+            String::new()
+        } else {
+            self.features
+                .borrow()
+                .queue
+                .first()
+                .map(|t| t.uri.clone())
+                .unwrap_or_default()
+        };
+        control().set_next_uri(&next);
         let output = control().output();
         let settings_device = control().settings().device;
         if output.lost && !self.output_lost {

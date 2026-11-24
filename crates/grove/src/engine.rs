@@ -36,6 +36,8 @@ use tokio::task::JoinHandle;
 #[derive(Default)]
 struct Tracking {
     point: RestorePoint,
+    /// Album position of the current song, for the queue lookahead.
+    slot: Option<AlbumSlot>,
     /// When `point.position_ms` was sampled, to extrapolate while playing.
     sampled: Option<Instant>,
 }
@@ -82,6 +84,49 @@ fn player_config(settings: &AudioSettings) -> PlayerConfig {
         },
         normalisation_pregain_db: f64::from(settings.pregain_db),
         ..PlayerConfig::default()
+    }
+}
+
+/// Look up Grove's next queued song (the drawer or autoplay refill) so a
+/// queued album run keeps its gapless joins and anything else fades.
+async fn lookahead(session: Session, tracking: Arc<Mutex<Tracking>>) {
+    let mut checked = (String::new(), String::new());
+    let mut tick = tokio::time::interval(Duration::from_secs(1));
+    loop {
+        tick.tick().await;
+        let next = control().next_uri();
+        let (current, slot) = {
+            let t = lock(&tracking);
+            (t.point.track_uri.clone(), t.slot.clone())
+        };
+        if (current.clone(), next.clone()) == checked {
+            continue;
+        }
+        checked = (current, next.clone());
+        let gapless = if next.starts_with("spotify:track:") && slot.is_some() {
+            match librespot_core::SpotifyUri::from_uri(&next) {
+                Ok(id) => {
+                    use librespot_metadata::Metadata;
+                    librespot_metadata::Track::get(&session, &id)
+                        .await
+                        .ok()
+                        .map(|track| {
+                            let following = AlbumSlot {
+                                album: track.album.name.clone(),
+                                disc: u32::try_from(track.disc_number).unwrap_or(0),
+                                number: u32::try_from(track.number).unwrap_or(0),
+                            };
+                            fade::consecutive(slot.as_ref(), Some(&following))
+                        })
+                }
+                Err(_) => None,
+            }
+        } else if next.is_empty() {
+            None
+        } else {
+            Some(false)
+        };
+        control().set_next_gapless(&next, gapless);
     }
 }
 
@@ -168,7 +213,7 @@ impl Engine {
             let mut position = 0u32; let mut volume = 35u32; let mut request_id:Option<u64>=None;
             let mut shuffled=false;let mut repeated=false;
             let mut loading=false;
-            let mut natural_end = false;
+            let mut natural_end: Option<Instant> = None;
             let mut slot: Option<AlbumSlot> = None;
             let mut duration_ms = 0u32;
             let mut title = String::new();
@@ -198,14 +243,17 @@ impl Engine {
                         let context = lock(&tracking).point.context_uri.clone();
                         let (fade_in, fade_out) = fade::plan(
                             audio.fade_seconds,
-                            natural_end,
+                            fade::natural(natural_end, Instant::now()),
                             fade::gapless_context(&context, shuffled),
                             fade::consecutive(slot.as_ref(), next_slot.as_ref()),
                             f64::from(duration_ms),
                         );
-                        natural_end = false;
+                        natural_end = None;
                         slot = next_slot;
+                        lock(&tracking).slot = slot.clone();
+                        let eligible = fade::plan(audio.fade_seconds, false, false, false, f64::from(duration_ms)).1;
                         control().update_clock(|clock| {
+                            clock.eligible = eligible;
                             clock.anchor_ms = 0.0;
                             clock.duration_ms = f64::from(duration_ms);
                             clock.fade_ms = f64::from(audio.fade_seconds) * 1000.0;
@@ -238,7 +286,7 @@ impl Engine {
                         continue;
                     }
                     PlayerEvent::EndOfTrack { play_request_id, .. } => {
-                        natural_end = true;
+                        natural_end = Some(Instant::now());
                         if control().with_settings(|s| s.resume.forget(&uri)) { control().mark_resume_dirty(); }
                         let _=events.send(Event::Payload(generation,json!({"type":"end_of_track","play_request_id":play_request_id})));playing=false;
                     }
@@ -273,6 +321,10 @@ impl Engine {
                 let _ = events.send(Event::Payload(generation,json!({"type":"playback_state","loading":loading,"play_request_id":request_id,"status":if playing {"playing"} else {"paused"},"item":item,"is_active":active,"position":{"position_ms":position,"speed":if playing {1} else {0}},"volume":volume,"options":{"shuffle":shuffled,"repeat_context":repeated},"available_actions":actions})));
             }
         }));
+        engine.tasks.push(tokio::spawn(lookahead(
+            engine.session.clone(),
+            engine.tracking.clone(),
+        )));
         Ok((engine, reusable))
     }
 

@@ -74,7 +74,11 @@ impl GroveSink {
         self.eq.process(samples);
         let position_ms =
             self.clock.anchor_ms + self.frames as f64 * 1000.0 / f64::from(SAMPLE_RATE);
-        let target = fade::gain(&self.clock, position_ms) * control.sleep_gain();
+        let clock = TrackClock {
+            fade_out: fade::fade_out(&self.clock, control.next_gapless()),
+            ..self.clock
+        };
+        let target = fade::gain(&clock, position_ms) * control.sleep_gain();
         self.ramp.apply(samples, target);
         dsp::clamp(samples);
         self.frames += (samples.len() / CHANNELS) as u64;

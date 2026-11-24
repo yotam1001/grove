@@ -2,6 +2,16 @@
 //! next song, so Grove fades the end of a song out and, after a natural
 //! track change, the start of the next one in. The sink applies the gain.
 //! Albums keep their gapless joins: no fade inside an album played in order.
+//!
+//! Grove's own queue (the drawer, autoplay refill) starts the next song with a
+//! new load after librespot's end-of-track, so "natural" means a track change
+//! shortly after an end, and the queue head is looked up ahead of time so an
+//! album run queued from a browse page also keeps its joins.
+use std::time::{Duration, Instant};
+
+/// A load this soon after an end-of-track continues the listening session
+/// (Grove's queue or autoplay picked it); later loads are the listener's.
+pub const NATURAL_WINDOW: Duration = Duration::from_secs(5);
 
 /// Where the sink is in the current song and which fades apply to it.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -14,6 +24,9 @@ pub struct TrackClock {
     pub fade_ms: f64,
     pub fade_in: bool,
     pub fade_out: bool,
+    /// Long enough to fade at all; Grove's queue lookahead may switch the
+    /// fade-out on or off within this.
+    pub eligible: bool,
 }
 
 /// Album position used to recognise a gapless join.
@@ -38,6 +51,18 @@ pub fn consecutive(previous: Option<&AlbumSlot>, next: Option<&AlbumSlot>) -> bo
         }
         _ => false,
     }
+}
+
+/// Whether a song that starts `now` follows an end at `ended` on its own.
+pub fn natural(ended: Option<Instant>, now: Instant) -> bool {
+    ended.is_some_and(|at| now.saturating_duration_since(at) <= NATURAL_WINDOW)
+}
+
+/// The fade-out to use once Grove knows its next queued song: `Some(true)`
+/// when that song continues the album gaplessly, `None` when the next song
+/// is up to the Spotify context.
+pub fn fade_out(clock: &TrackClock, next_gapless: Option<bool>) -> bool {
+    clock.eligible && next_gapless.map_or(clock.fade_out, |gapless| !gapless)
 }
 
 /// Decide the fades for a song that just started.
@@ -86,6 +111,7 @@ mod tests {
             fade_ms: 6_000.0,
             fade_in,
             fade_out,
+            eligible: true,
         }
     }
 
@@ -134,6 +160,40 @@ mod tests {
             "Too short to fade"
         );
         assert_eq!(plan(6, true, false, false, f64::INFINITY), (false, false));
+    }
+
+    #[test]
+    fn grove_queue_and_autoplay_count_as_natural_but_late_picks_do_not() {
+        let end = Instant::now();
+        assert!(
+            natural(Some(end), end + Duration::from_millis(300)),
+            "Queue head after EOF"
+        );
+        assert!(natural(Some(end), end + NATURAL_WINDOW));
+        assert!(
+            !natural(Some(end), end + NATURAL_WINDOW + Duration::from_millis(1)),
+            "A later manual pick starts at full level"
+        );
+        assert!(!natural(None, end), "A skip or drawer pick has no end");
+    }
+
+    #[test]
+    fn the_queue_lookahead_overrides_the_context_guess() {
+        let mut c = clock(false, true);
+        c.eligible = true;
+        assert!(fade_out(&c, None), "Unknown next: keep the planned fade");
+        assert!(
+            !fade_out(&c, Some(true)),
+            "Next queued song continues the album"
+        );
+        assert!(fade_out(&c, Some(false)));
+        c.fade_out = false;
+        assert!(
+            fade_out(&c, Some(false)),
+            "Album context, but the queue plays something else next"
+        );
+        c.eligible = false;
+        assert!(!fade_out(&c, Some(false)), "Too short or fades off");
     }
 
     #[test]

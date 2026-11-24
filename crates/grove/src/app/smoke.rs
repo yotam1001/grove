@@ -613,6 +613,36 @@ const STAGES: &[Stage] = &[
         crate::app::system_fixtures(ui);
     }),
     ("settings-narrow", |ui| size(ui, NARROW)),
+    // Settings → Audio cards and the sleep countdown in the player bar.
+    ("settings-audio", |ui| {
+        size(ui, WIDE);
+        ui.set_review_scroll(1150.0);
+    }),
+    ("settings-audio-narrow", |ui| {
+        size(ui, NARROW);
+        ui.set_review_scroll(1450.0);
+    }),
+    ("player-sleep", |ui| {
+        size(ui, WIDE);
+        ui.set_review_scroll(0.0);
+        playing(
+            ui,
+            "Native playback fixture",
+            "Visual test · no Spotify session",
+        );
+        ui.set_page(5);
+        ui.global::<crate::GroveAudio>()
+            .invoke_choose("sleep".into(), 30);
+        assert_eq!(ui.get_sleep_remaining(), "Sleep in 30 min");
+    }),
+    ("player-sleep-narrow", |ui| size(ui, NARROW)),
+    ("", |ui| {
+        ui.global::<crate::GroveAudio>()
+            .invoke_choose("sleep".into(), 0);
+        assert_eq!(ui.get_sleep_remaining(), "");
+        size(ui, WIDE);
+        ui.set_page(8);
+    }),
     ("settings-light", |ui| {
         size(ui, WIDE);
         ui.invoke_appearance("theme-system".into());

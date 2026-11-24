@@ -88,6 +88,18 @@ pub fn start(
                 let last = g.get_devices().row_data(2).unwrap();
                 assert!(last.label.ends_with("· unavailable") && !last.available && last.selected);
                 assert!(g.get_output_note().contains("within 10 minutes"), "{}", g.get_output_note());
+                // The queue drawer head reaches the sink's fade lookahead.
+                let features = audio.borrow().features.clone();
+                features.borrow_mut().queue.push(crate::state::Track { uri: EPISODE.into(), title: "Queued".into(), ..Default::default() });
+                audio.borrow_mut().tick(&ui, Instant::now());
+                assert_eq!(control().next_uri(), EPISODE);
+                ui.set_jam_connected(true);
+                audio.borrow_mut().tick(&ui, Instant::now());
+                assert_eq!(control().next_uri(), "", "Jams decide their own next song");
+                ui.set_jam_connected(false);
+                features.borrow_mut().queue.clear();
+                audio.borrow_mut().tick(&ui, Instant::now());
+                assert_eq!(control().next_uri(), "");
             }
             3 => {
                 capture(&ui, &out, "audio-output-lost");

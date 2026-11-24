@@ -2,7 +2,7 @@
 //! the device scanner. Small locks only; nothing here blocks on audio.
 use super::{fade::TrackClock, settings::AudioSettings};
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering},
     Mutex, MutexGuard, OnceLock,
 };
 
@@ -30,6 +30,10 @@ pub struct Control {
     output: Mutex<OutputState>,
     devices: Mutex<DeviceScan>,
     resume_dirty: AtomicBool,
+    /// Grove's next queued song, from the UI.
+    next_uri: Mutex<String>,
+    /// 0 unknown, 1 the next queued song continues the album, 2 it does not.
+    next_gapless: AtomicU8,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -49,6 +53,8 @@ impl Default for Control {
             output: Mutex::new(OutputState::default()),
             devices: Mutex::new(DeviceScan::default()),
             resume_dirty: AtomicBool::new(false),
+            next_uri: Mutex::new(String::new()),
+            next_gapless: AtomicU8::new(0),
         }
     }
 }
@@ -143,6 +149,40 @@ impl Control {
         *lock(&self.devices) = scan;
     }
 
+    /// Grove's queue head changed; forget the old lookahead.
+    pub fn set_next_uri(&self, uri: &str) {
+        let mut next = lock(&self.next_uri);
+        if *next != uri {
+            *next = uri.to_owned();
+            self.next_gapless.store(0, Ordering::Release);
+        }
+    }
+
+    pub fn next_uri(&self) -> String {
+        lock(&self.next_uri).clone()
+    }
+
+    pub fn next_gapless(&self) -> Option<bool> {
+        match self.next_gapless.load(Ordering::Acquire) {
+            1 => Some(true),
+            2 => Some(false),
+            _ => None,
+        }
+    }
+
+    /// Record the lookahead for `uri`, unless the queue moved on meanwhile.
+    pub fn set_next_gapless(&self, uri: &str, gapless: Option<bool>) {
+        let next = lock(&self.next_uri);
+        if *next == uri {
+            let value = match gapless {
+                Some(true) => 1,
+                Some(false) => 2,
+                None => 0,
+            };
+            self.next_gapless.store(value, Ordering::Release);
+        }
+    }
+
     pub fn mark_resume_dirty(&self) {
         self.resume_dirty.store(true, Ordering::Release);
     }
@@ -175,6 +215,13 @@ mod tests {
         assert_eq!(control.device_generation(), device + 1);
         control.set_sleep_gain(f64::NAN);
         assert_eq!(control.sleep_gain(), 1.0);
+        control.set_next_uri("spotify:track:b");
+        control.set_next_gapless("spotify:track:a", Some(true));
+        assert_eq!(control.next_gapless(), None, "A stale lookahead is ignored");
+        control.set_next_gapless("spotify:track:b", Some(true));
+        assert_eq!(control.next_gapless(), Some(true));
+        control.set_next_uri("spotify:track:c");
+        assert_eq!(control.next_gapless(), None, "A new queue head resets it");
         let epoch = control.clock().epoch;
         control.update_clock(|c| c.anchor_ms = 5.0);
         assert_eq!(control.clock().epoch, epoch + 1);
