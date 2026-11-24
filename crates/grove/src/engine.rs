@@ -40,6 +40,9 @@ struct Tracking {
     slot: Option<AlbumSlot>,
     /// When `point.position_ms` was sampled, to extrapolate while playing.
     sampled: Option<Instant>,
+    /// The current song was loaded by a jam: everyone in the room hears the
+    /// same unfaded audio, so local fades must not apply.
+    jam: bool,
 }
 
 pub struct Engine {
@@ -241,8 +244,12 @@ impl Engine {
                         // Fades for this song: in only after a natural end, never inside an album played in order.
                         let audio = control().settings();
                         let context = lock(&tracking).point.context_uri.clone();
+                        // Jam-loaded songs never fade: listeners start together and a
+                        // guest's sync seeks must not land in a local fade.
+                        let jam = lock(&tracking).jam;
+                        let fade_seconds = if jam { 0 } else { audio.fade_seconds };
                         let (fade_in, fade_out) = fade::plan(
-                            audio.fade_seconds,
+                            fade_seconds,
                             fade::natural(natural_end, Instant::now()),
                             fade::gapless_context(&context, shuffled),
                             fade::consecutive(slot.as_ref(), next_slot.as_ref()),
@@ -251,12 +258,12 @@ impl Engine {
                         natural_end = None;
                         slot = next_slot;
                         lock(&tracking).slot = slot.clone();
-                        let eligible = fade::plan(audio.fade_seconds, false, false, false, f64::from(duration_ms)).1;
+                        let eligible = fade::plan(fade_seconds, false, false, false, f64::from(duration_ms)).1;
                         control().update_clock(|clock| {
                             clock.eligible = eligible;
                             clock.anchor_ms = 0.0;
                             clock.duration_ms = f64::from(duration_ms);
-                            clock.fade_ms = f64::from(audio.fade_seconds) * 1000.0;
+                            clock.fade_ms = f64::from(fade_seconds) * 1000.0;
                             clock.fade_in = fade_in;
                             clock.fade_out = fade_out;
                         });
@@ -400,7 +407,11 @@ impl Engine {
                         payload["context_uri"]
                             .as_str()
                             .unwrap_or(if single { "" } else { uri });
-                    lock(&self.tracking).point.context_uri = context.to_owned();
+                    {
+                        let mut tracking = lock(&self.tracking);
+                        tracking.point.context_uri = context.to_owned();
+                        tracking.jam = payload["command"] == "jam_load";
+                    }
                     let request = if let Some(context) = payload["context_uri"].as_str() {
                         LoadRequest::from_context_uri(context.to_owned(), options)
                     } else if single {

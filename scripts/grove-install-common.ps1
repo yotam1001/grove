@@ -454,11 +454,21 @@ function Uninstall-Grove([string]$InstallRoot, [string]$ShortcutRoot) {
 # HKCU only (no administrator rights). A link only fills in the invitation in
 # Grove; joining still needs a click. Existing handlers that point outside this
 # install root are left untouched, and removal only deletes Grove's own entry.
+# Registry access goes through the three primitives below so the lifecycle
+# harness can fake them.
+$GroveUrlHandlerKey = 'HKCU:\Software\Classes\grove'
 function Get-GroveUrlHandlerCommand {
-    $key = 'HKCU:\Software\Classes\grove\shell\open\command'
+    $key = $GroveUrlHandlerKey + '\shell\open\command'
     if (!(Test-Path -LiteralPath $key)) { return $null }
     return (Get-ItemProperty -LiteralPath $key -ErrorAction Stop).'(default)'
 }
+function Write-GroveUrlHandlerCommand([string]$Command) {
+    New-Item -Path ($GroveUrlHandlerKey + '\shell\open\command') -Force | Out-Null
+    Set-ItemProperty -LiteralPath $GroveUrlHandlerKey -Name '(default)' -Value 'URL:Grove jam invite'
+    Set-ItemProperty -LiteralPath $GroveUrlHandlerKey -Name 'URL Protocol' -Value ''
+    Set-ItemProperty -LiteralPath ($GroveUrlHandlerKey + '\shell\open\command') -Name '(default)' -Value $Command
+}
+function Remove-GroveUrlHandlerKey { Remove-Item -LiteralPath $GroveUrlHandlerKey -Recurse -Force }
 function Test-GroveUrlHandlerOwned([string]$InstallRoot, $Command) {
     if ($null -eq $Command) { return $false }
     $prefix = '"' + [IO.Path]::GetFullPath($InstallRoot).TrimEnd([char]92) + [char]92 + 'releases' + [char]92
@@ -467,16 +477,10 @@ function Test-GroveUrlHandlerOwned([string]$InstallRoot, $Command) {
 function Set-GroveUrlHandler([string]$InstallRoot, [string]$Exe) {
     $current = Get-GroveUrlHandlerCommand
     if ($null -ne $current -and !(Test-GroveUrlHandlerOwned $InstallRoot $current)) { throw 'Another app owns grove:// links.' }
-    $root = 'HKCU:\Software\Classes\grove'
     $command = '"' + [IO.Path]::GetFullPath($Exe) + '" "%1"'
     if (!(Test-GroveUrlHandlerOwned $InstallRoot $command)) { throw 'Unexpected Grove executable path.' }
-    New-Item -Path ($root + '\shell\open\command') -Force | Out-Null
-    Set-ItemProperty -LiteralPath $root -Name '(default)' -Value 'URL:Grove jam invite'
-    Set-ItemProperty -LiteralPath $root -Name 'URL Protocol' -Value ''
-    Set-ItemProperty -LiteralPath ($root + '\shell\open\command') -Name '(default)' -Value $command
+    Write-GroveUrlHandlerCommand $command
 }
 function Remove-GroveUrlHandler([string]$InstallRoot) {
-    if (Test-GroveUrlHandlerOwned $InstallRoot (Get-GroveUrlHandlerCommand)) {
-        Remove-Item -LiteralPath 'HKCU:\Software\Classes\grove' -Recurse -Force
-    }
+    if (Test-GroveUrlHandlerOwned $InstallRoot (Get-GroveUrlHandlerCommand)) { Remove-GroveUrlHandlerKey }
 }

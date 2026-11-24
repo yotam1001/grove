@@ -29,6 +29,7 @@ pub struct JamState {
     isrc_pending: HashSet<String>,
     remote: Recording,
     candidates: Vec<Recording>,
+    sender: Option<tokio::sync::mpsc::UnboundedSender<crate::jam_transport::Request>>,
 }
 impl JamState {
     pub(super) fn isrc_loaded(&mut self, data: &Value, uri: String) {
@@ -124,6 +125,38 @@ pub(super) fn bind(ui: &GroveWindow, this: &Rc<RefCell<Features>>) {
 }
 
 impl Features {
+    /// The jam worker's sender, so song menus can add to the shared queue.
+    pub fn set_jam_sender(
+        &mut self,
+        sender: tokio::sync::mpsc::UnboundedSender<crate::jam_transport::Request>,
+    ) {
+        self.jam.sender = Some(sender);
+    }
+    /// "Add to queue" from any song menu while in a jam.
+    pub(super) fn add_song_to_jam(&mut self, ui: &GroveWindow, uri: &str, title: Option<&str>) {
+        let Some(sender) = self.jam.sender.clone() else {
+            ui.set_message("Use the shared jam queue while in a jam.".into());
+            return;
+        };
+        if ui.get_jam_tide_host() {
+            ui.set_message("Choose the next song in Tide on the host's device.".into());
+            return;
+        }
+        if !uri.starts_with("spotify:track:") {
+            ui.set_message("Only Spotify songs can join the shared jam queue.".into());
+            return;
+        }
+        match title.filter(|t| !t.trim().is_empty()) {
+            Some(title) => {
+                let _ = sender.send(crate::jam_transport::Request::Add {
+                    uri: uri.into(),
+                    title: title.chars().take(120).collect(),
+                });
+                ui.set_message("Added to the shared jam queue.".into());
+            }
+            None => self.resolve_jam(ui, uri.into(), sender),
+        }
+    }
     pub fn reset_jam(&mut self, ui: &GroveWindow) {
         self.jam_pairs = Default::default();
         self.jam_pairs.set_remember(self.prefs.remember_jam_matches);

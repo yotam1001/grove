@@ -45,6 +45,7 @@ pub fn open_link(ui: &GroveWindow, link: &str) {
 }
 
 pub fn bind(ui: &GroveWindow, jam_tx: &JamSender, features: &Rc<RefCell<Features>>) {
+    features.borrow_mut().set_jam_sender(jam_tx.clone());
     if let Some(link) = std::env::args()
         .skip(1)
         .find(|a| a.len() < 4096 && a.to_ascii_lowercase().starts_with("grove://"))

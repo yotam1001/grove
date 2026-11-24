@@ -123,12 +123,15 @@ pub fn start(
                 features.borrow_mut().resolve_jam_collection(&ui,"spotify:album:aaaaaaaaaaaaaaaaaaaaaa".into(),sender);let id=features.borrow().serial;
                 features.borrow_mut().response(&ui,id,Ok(json!({"kind":"collection_page","items":[track('a',"One"),{"track":track('b',"Two")},{"item":null}],"has_more":false})));
                 assert!(matches!(receiver.try_recv(),Ok(crate::jam_transport::Request::AddItems{group,items}) if group=="From an album"&&items.len()==2));
+                // Song menus on collection (10) and artist (11) pages feed the shared queue in a jam.
+                let(jam_sender,mut jam_rx)=tokio::sync::mpsc::unbounded_channel();features.borrow_mut().set_jam_sender(jam_sender);
+                ui.set_jam_tide_host(false);for page in [10,11]{ui.set_page(page);features.borrow_mut().add_song_to_jam(&ui,"spotify:track:aaaaaaaaaaaaaaaaaaaaaa",Some("Menu pick"));assert!(matches!(jam_rx.try_recv(),Ok(crate::jam_transport::Request::Add{title,..}) if title=="Menu pick"));}
+                ui.set_page(4);
                 ui.set_library_ready(true);assert_eq!(features.borrow_mut().host_isrc(&ui,"spotify:track:ffffffffffffffffffffff"),(String::new(),0));let id=features.borrow().serial;
                 features.borrow_mut().response(&ui,id,Ok(json!({"track":isrc_track('f',"Forest floor",210_000)})));
                 assert_eq!(features.borrow_mut().host_isrc(&ui,"spotify:track:ffffffffffffffffffffff"),("USRC17607839".into(),210_000));
-                capture(&ui,&out,"isrc-match");ui.set_jam_connected(false);
-            },
-            18=>{features.borrow_mut().reset_jam(&ui);ui.set_jam_invite("cross-room-b".into());
+                capture(&ui,&out,"isrc-match");
+                features.borrow_mut().reset_jam(&ui);ui.set_jam_invite("cross-room-b".into());
                 let remote=crate::jam::Playback{uri:"youtube:bcdefghijkl".into(),title:"Forest floor".into(),artist:"Review artist".into(),position_ms:12000,playing:true,sampled_at_ms:crate::jam::unix_ms(),..Default::default()};
                 assert!(features.borrow_mut().paired_host(&ui,&remote).is_none(),"Recording choice leaked across rooms");let id=features.borrow().serial;
                 ui.set_jam_connected(false);features.borrow_mut().response(&ui,id,Ok(json!({"tracks":[track('d',"Late response")]})));assert_eq!(ui.get_jam_matches().row_count(),0);

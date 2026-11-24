@@ -36,7 +36,9 @@ impl Features {
                     return;
                 }
                 if ui.get_jam_connected() {
-                    ui.set_message("Use the shared jam queue while in a jam.".into());
+                    // Song menus on every page (Home, Search, collection 10, artist 11)
+                    // add to the shared jam queue while in a jam.
+                    self.add_song_to_jam(ui, uri, track.as_ref().map(|t| t.title.as_str()));
                     return;
                 }
                 if let Some(t) = track {

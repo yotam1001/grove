@@ -39,7 +39,7 @@ class PackageTests(unittest.TestCase):
 @unittest.skipUnless(os.name == "nt", "Windows installer")
 class InstallerTests(unittest.TestCase):
     def test_isolated_lifecycle(self):
-        scenarios = ["fresh-remove","upgrade","preserve-extra","dependency-failure-first","dependency-failure-update","shortcut-failure","busy","unknown-root","shortcut-conflict","changed-shortcut-removal","corrupt-package","traversal-record","lock","download","archive-paths","app-entry-write-failure-first","app-entry-write-failure-update","app-entry-marker-failure","app-entry-version-update","app-entry-migration","app-entry-new-race","protocol"]
+        scenarios = ["fresh-remove","upgrade","preserve-extra","dependency-failure-first","dependency-failure-update","shortcut-failure","busy","unknown-root","shortcut-conflict","changed-shortcut-removal","corrupt-package","traversal-record","lock","download","archive-paths","app-entry-write-failure-first","app-entry-write-failure-update","app-entry-marker-failure","app-entry-version-update","app-entry-migration","app-entry-new-race","protocol","url-handler"]
         # Grove Setup and "Uninstall Grove.cmd" run these scripts with the built-in
         # Windows PowerShell 5.1, so the lifecycle is tested with that shell too.
         shell=os.path.join(os.environ["SystemRoot"],"System32","WindowsPowerShell","v1.0","powershell.exe")

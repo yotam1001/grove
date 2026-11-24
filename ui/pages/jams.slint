@@ -1,19 +1,18 @@
 // Shared jams (page 4): start, join, follow and the shared queue, as cards.
 import { LineEdit } from "std-widgets.slint";
 import { GroveFeatureTrack, GroveJamTrack } from "../model.slint";
-import { GroveButton, GroveSwitch, Rule } from "../components.slint";
+import { GroveButton, GroveCard, GroveChip, GroveEyebrow, Rule } from "../components.slint";
+import { SegmentedChoice, SettingSwitch } from "../settings_components.slint";
 import { GroveTheme } from "../theme.slint";
 
-component JamCard inherits Rectangle {
+// A shell card with an eyebrow heading and an optional note.
+component JamCard inherits GroveCard {
     in property <string> title;
     in property <string> note;
-    background: GroveTheme.surface;
-    border-radius: 12px;
-    border-width: 1px;
-    border-color: GroveTheme.border;
+    vertical-stretch: 0;
     VerticalLayout {
         padding: 18px; spacing: 12px;
-        if root.title != "" : Text { text: root.title; color: GroveTheme.text; font-size: 18px; font-weight: 600; wrap: word-wrap; }
+        if root.title != "" : GroveEyebrow { text: root.title; }
         if root.note != "" : Text { text: root.note; color: GroveTheme.muted; font-size: 13px; wrap: word-wrap; }
         @children
     }
@@ -79,7 +78,7 @@ export component JamsPage inherits VerticalLayout {
     spacing: 16px; vertical-stretch: 0;
 
     if root.jam-message != "" : Rectangle {
-        background: GroveTheme.rail; border-radius: 10px;
+        background: GroveTheme.raised; border-radius: GroveTheme.radius-sm; border-width: 1px; border-color: GroveTheme.line;
         HorizontalLayout {
             padding: 12px;
             Text { text: root.jam-message; color: GroveTheme.warning; font-size: 13px; wrap: word-wrap; }
@@ -93,9 +92,8 @@ export component JamsPage inherits VerticalLayout {
             title: "Start a jam";
             note: root.jam-internet ? "Internet room through a relay that supports cross-service rooms (protocol 2). Run your own for free with grove-jam-relay." : "Nearby room on this network. Traffic is encrypted with a key from the invitation.";
             HorizontalLayout {
-                spacing: 8px; alignment: start;
-                GroveButton { text: "Nearby"; selected: !root.jam-internet; width: 110px; height: 36px; clicked => { root.jam-internet = false; } }
-                GroveButton { text: "Internet"; selected: root.jam-internet; width: 110px; height: 36px; clicked => { root.jam-internet = true; } }
+                alignment: start;
+                SegmentedChoice { width: 220px; label: "Room type"; options: ["Nearby", "Internet"]; selected: root.jam-internet ? 1 : 0; chosen(i) => { root.jam-internet = i == 1; } }
             }
             Text { text: "Your display name"; color: GroveTheme.secondary; font-size: 13px; }
             LineEdit { text <=> root.jam-name; accessible-label: "Jam display name"; height: 40px; }
@@ -129,7 +127,7 @@ export component JamsPage inherits VerticalLayout {
                 VerticalLayout {
                     spacing: 4px; alignment: center;
                     Text { text: root.jam-host ? "You’re hosting" : "Listening together"; color: GroveTheme.text; font-size: 22px; font-weight: 650; overflow: elide; }
-                    if root.jam-security != "" : Text { text: root.jam-security; color: GroveTheme.muted; font-size: 12px; overflow: elide; }
+                    if root.jam-security != "" : HorizontalLayout { alignment: start; GroveChip { text: root.jam-security; icon: "people"; active: true; label: "Connection security"; } }
                 }
                 GroveButton { text: root.jam-host ? "End jam" : "Leave"; width: 100px; height: 40px; clicked => { root.jam-leave(); } }
             }
@@ -140,7 +138,7 @@ export component JamsPage inherits VerticalLayout {
                 if !root.jam-host : GroveButton { text: root.jam-following ? "Stop following" : "Follow host"; width: 150px; height: 38px; clicked => { root.jam-following = !root.jam-following; } }
                 if !root.jam-host : GroveButton { text: "Vote to skip"; width: 130px; height: 38px; enabled: root.jam-can-skip; clicked => { root.jam-vote-skip(); } }
             }
-            if root.jam-host : GroveSwitch { text: "Play the next shared song automatically"; checked: root.jam-auto-advance; toggled => { root.jam-auto-advance = !root.jam-auto-advance; root.jam-options-changed("auto-advance"); } }
+            if root.jam-host : SettingSwitch { text: "Play the next shared song automatically"; note: "When your song ends, the first waiting song starts for everyone."; checked: root.jam-auto-advance; toggled => { root.jam-auto-advance = !root.jam-auto-advance; root.jam-options-changed("auto-advance"); } }
         }
         if root.jam-host : JamCard {
             title: "Invite friends";
@@ -162,7 +160,7 @@ export component JamsPage inherits VerticalLayout {
                 LineEdit { text <=> root.jam-match-link; placeholder-text: "Or paste the matching Spotify song link"; accessible-label: "Matching Spotify song"; height: 38px; accepted => { root.jam-pair(-1); } }
                 GroveButton { text: "Use link"; width: 100px; height: 38px; clicked => { root.jam-pair(-1); } }
             }
-            GroveSwitch { text: "Remember my choices on this computer"; checked: root.jam-remember-matches; toggled => { root.jam-remember-matches = !root.jam-remember-matches; root.jam-options-changed("remember"); } }
+            SettingSwitch { text: "Remember my choices on this computer"; note: "Reuse confirmed songs in later jams. Turning this off forgets them."; checked: root.jam-remember-matches; toggled => { root.jam-remember-matches = !root.jam-remember-matches; root.jam-options-changed("remember"); } }
         }
         JamCard {
             title: "People";
