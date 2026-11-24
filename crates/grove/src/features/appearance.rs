@@ -14,7 +14,7 @@ pub(super) fn load_preferences(ui: &GroveWindow, offline: bool) -> Preferences {
             Err(e) => (Preferences::default(), Some(e)),
         }
     };
-    ui.set_light_mode(prefs.light);
+    crate::theme_watch::apply(ui, prefs.follow_system, prefs.light);
     ui.set_compact_mode(prefs.compact);
     ui.set_autoplay(prefs.autoplay);
     ui.set_media_keys(prefs.media_keys);
@@ -36,7 +36,15 @@ pub(super) fn bind(ui: &GroveWindow, this: &Rc<RefCell<Features>>) {
         if let Some(ui) = weak.upgrade() {
             let mut f = f.borrow_mut();
             match action.as_str() {
-                "theme" => f.prefs.light = !f.prefs.light,
+                "theme" => {
+                    f.prefs.light = !f.prefs.light;
+                    f.prefs.follow_system = false;
+                }
+                "theme-dark" | "theme-light" => {
+                    f.prefs.light = action == "theme-light";
+                    f.prefs.follow_system = false;
+                }
+                "theme-system" => f.prefs.follow_system = true,
                 "compact" => {
                     f.prefs.compact = !f.prefs.compact;
                     ui.window().set_size(slint::LogicalSize::new(
@@ -55,7 +63,7 @@ pub(super) fn bind(ui: &GroveWindow, this: &Rc<RefCell<Features>>) {
                 "accent-art" => f.prefs.accent_art = !f.prefs.accent_art,
                 _ => return,
             }
-            ui.set_light_mode(f.prefs.light);
+            crate::theme_watch::apply(&ui, f.prefs.follow_system, f.prefs.light);
             ui.set_compact_mode(f.prefs.compact);
             ui.set_autoplay(f.prefs.autoplay);
             ui.set_media_keys(f.prefs.media_keys);
@@ -70,7 +78,7 @@ pub(super) fn bind(ui: &GroveWindow, this: &Rc<RefCell<Features>>) {
 }
 
 impl Features {
-    pub(super) fn save(&self, ui: &GroveWindow) {
+    pub fn save(&self, ui: &GroveWindow) {
         if !self.offline {
             if let Err(e) = self.prefs.save() {
                 ui.set_message(e.into());

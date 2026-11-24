@@ -1,0 +1,89 @@
+// Windows integration state shared by Settings, the window key handler and the
+// crash notice: theme following, tray, global shortcuts, updates and crash
+// reports. Rust reads and writes it through `ui.global::<GroveSystem>()`.
+import { GroveTheme } from "theme.slint";
+import { GroveButton } from "components.slint";
+
+export global GroveSystem {
+    // Theme: follow the Windows app light/dark setting while true.
+    in-out property <bool> follow-system: false;
+    in property <bool> system-theme-supported: false;
+
+    // Tray: closing the window hides Grove to the notification area.
+    in-out property <bool> close-to-tray: false;
+    in property <bool> tray-supported: false;
+
+    // Global shortcuts, shown in canonical form ("Ctrl+Alt+P"); "" when unset.
+    in property <string> shortcut-toggle;
+    in property <string> shortcut-next;
+    in property <string> shortcut-previous;
+    in property <string> shortcut-status;
+    in property <bool> shortcuts-supported: false;
+    in-out property <int> shortcut-recording-index: -1;
+    callback begin-shortcut(int);
+    callback cancel-shortcut();
+    callback clear-shortcut(int);
+    callback record-shortcut(string, bool, bool, bool, bool);
+
+    // In-window keys (Space, Left, Right) when no text field has focus.
+    // Returns true when the key was used.
+    callback window-key(string) -> bool;
+
+    // Updates: 0 idle, 1 checking, 2 up to date, 3 available, 4 downloading,
+    // 5 ready to install, 6 error.
+    in property <int> update-state: 0;
+    in property <string> update-status;
+    in property <string> update-version;
+    callback check-updates();
+    callback download-update();
+    callback install-update();
+
+    // A crash report from the previous run, already redacted.
+    in property <bool> crash-pending: false;
+    in property <string> crash-report;
+    in property <string> crash-status;
+    callback crash-action(string);
+
+    // Generic toggles: "follow-system", "tray".
+    callback toggle(string);
+}
+
+// Shown at the top of every page after Grove crashed last time. The report is
+// local only; Copy puts it on the clipboard so the user decides where it goes.
+export component CrashNotice inherits Rectangle {
+    private property <bool> details: false;
+    border-radius: 12px;
+    background: GroveTheme.surface;
+    border-width: 1px;
+    border-color: GroveTheme.warning;
+    vertical-stretch: 0;
+    VerticalLayout {
+        padding: 16px; spacing: 10px;
+        Text { text: "Grove closed unexpectedly last time"; color: GroveTheme.text; font-size: 16px; font-weight: 600; wrap: word-wrap; }
+        Text {
+            text: "A crash report was saved on this PC. Tokens, account names, file paths and song history are removed. Copy it into a GitHub issue if you'd like to help fix it.";
+            color: GroveTheme.secondary; font-size: 13px; wrap: word-wrap;
+        }
+        if root.details : Rectangle {
+            height: 140px; border-radius: 8px; background: GroveTheme.canvas; clip: true;
+            report := TextInput {
+                x: 10px; y: 8px; width: parent.width - 20px; height: parent.height - 16px;
+                text: GroveSystem.crash-report; read-only: true; single-line: false; wrap: word-wrap;
+                color: GroveTheme.secondary; font-size: 11px; font-family: "Consolas";
+                accessible-label: "Crash report";
+            }
+        }
+        HorizontalLayout {
+            spacing: 10px; alignment: start;
+            GroveButton { text: "Copy report"; accent: true; width: 130px; clicked => { root.details = true; GroveSystem.crash-action("copy"); copy-buffer.select-all(); copy-buffer.copy(); copy-buffer.clear-selection(); } }
+            GroveButton { text: root.details ? "Hide report" : "View report"; width: 120px; clicked => { root.details = !root.details; } }
+            GroveButton { text: "Dismiss"; width: 100px; clicked => { GroveSystem.crash-action("dismiss"); } }
+        }
+        if GroveSystem.crash-status != "" : Text { text: GroveSystem.crash-status; color: GroveTheme.muted; font-size: 12px; }
+    }
+    // Off-screen buffer used only for the clipboard copy.
+    copy-buffer := TextInput {
+        x: 0px; y: 0px; width: 0px; height: 0px; visible: false;
+        text: GroveSystem.crash-report; read-only: true; single-line: false;
+    }
+}

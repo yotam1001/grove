@@ -168,9 +168,9 @@ pub fn start(
                 assert!(ui.get_can_go_forward());ui.invoke_navigate_forward();assert_eq!(ui.get_page(),5);
                 ui.invoke_appearance("accent-art".into());assert!(ui.get_accent_follows_art());ui.invoke_appearance("accent-art".into());
                 features.borrow_mut().clear(&ui);
-                eprintln!("PASS: native feature callbacks, confirmed cross-service matching, stale-song and room guards, queue drawer, hide and related songs");slint::quit_event_loop().unwrap();
+                eprintln!("PASS: native feature callbacks, confirmed cross-service matching, stale-song and room guards, queue drawer, hide and related songs");
             },
-            _=>{}
+            _=>{if crate::app::system_review::step(&ui,&features,&out,step-20){slint::quit_event_loop().unwrap();}}
         }
         eprintln!("Feature review stage {step} passed");step+=1;
     });

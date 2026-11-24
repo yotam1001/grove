@@ -3,6 +3,7 @@ mod app;
 mod artwork;
 mod auth;
 mod beta;
+mod crash;
 mod credentials;
 mod engine;
 mod features;
@@ -14,9 +15,13 @@ mod local;
 mod lyrics;
 mod media;
 mod preferences;
+mod shortcuts;
 mod spotify;
 mod state;
+mod theme_watch;
+mod tray;
 mod ui_review;
+mod update;
 mod web_api;
 
 use slint::ComponentHandle;
@@ -37,6 +42,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let modes = app::ReviewModes::parse()?;
     let offline = modes.offline();
+    crash::install(offline);
     let state = Rc::new(RefCell::new(State::default()));
     let (tx, events, handle) = spotify::worker();
     let (jam_tx, jam_events, jam_handle) = jam_transport::worker();
@@ -64,6 +70,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let poll = app::events::start(&ui, events, &state, &jam_tx, &tx, &features, &local);
     let media = media::install(&ui, state.clone(), offline);
+    let theme_timer = theme_watch::start(&ui, offline);
+    tray::bind(&ui, &features);
+    let shortcuts = shortcuts::install(&ui, &features, offline);
+    update::install(&ui, offline);
+    crash::offer(&ui, offline);
     let jam_timer = app::jam_ui::start_timer(&ui, jam_events, &state, &jam_tx, &tx, &features);
 
     let smoke_timer = slint::Timer::default();
@@ -95,6 +106,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     drop(media);
     drop(lyrics);
     drop(shell);
+    drop(shortcuts);
+    drop(theme_timer);
     local_timer.stop();
     drop(local_timer);
     // Release all UI/timer sender clones before joining the worker.

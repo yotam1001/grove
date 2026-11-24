@@ -16,6 +16,16 @@ pub fn command_line() -> Result<bool, Box<dyn std::error::Error>> {
             println!("Grove {}", env!("CARGO_PKG_VERSION"));
             Ok(true)
         }
+        Some("--verify-update") => {
+            let (Some(manifest), Some(installer)) = (args.get(2), args.get(3)) else {
+                return Err("--verify-update needs a GroveUpdate.json and an installer".into());
+            };
+            println!(
+                "{}",
+                crate::update::verify_local(manifest.as_ref(), installer.as_ref())?
+            );
+            Ok(true)
+        }
         Some("--export-icon") => {
             std::fs::write(
                 args.get(2).ok_or("--export-icon needs an output file")?,

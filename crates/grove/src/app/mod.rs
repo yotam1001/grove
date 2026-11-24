@@ -6,9 +6,23 @@ pub mod jam_ui;
 pub mod playback_callbacks;
 pub mod shell;
 pub mod smoke;
+pub mod system_review;
 pub mod window;
 
 use crate::spotify::{Request, RequestSender};
+
+/// Synthetic Settings state for screenshots: shortcuts, tray and an update.
+pub fn system_fixtures(ui: &crate::GroveWindow) {
+    use slint::ComponentHandle;
+    let system = ui.global::<crate::GroveSystem>();
+    system.set_shortcut_toggle("Ctrl+Alt+P".into());
+    system.set_shortcut_next("Ctrl+Alt+Shift+Right".into());
+    system.set_shortcut_status("A shortcut is already in use by Windows or another app. Previous shortcuts are still active; choose another combination.".into());
+    system.set_close_to_tray(true);
+    system.set_update_version("0.1.0-beta.2".into());
+    system.set_update_state(3);
+    system.set_update_status("31 MB from GitHub Releases · synthetic fixture".into());
+}
 
 pub fn send(tx: &RequestSender, payload: serde_json::Value) {
     let _ = tx.send(Request::Command(payload));

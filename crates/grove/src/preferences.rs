@@ -14,6 +14,12 @@ pub struct Preferences {
     pub hidden: HashSet<String>,
     /// The accent follows the current artwork colour.
     pub accent_art: bool,
+    /// Follow the Windows app light/dark setting instead of `light`.
+    pub follow_system: bool,
+    /// Closing the window hides Grove to the notification area.
+    pub close_to_tray: bool,
+    /// Global Play/pause, Next and Previous chords; "" when unset.
+    pub shortcuts: [String; 3],
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -26,6 +32,9 @@ impl Default for Preferences {
             volume: 35.0,
             hidden: HashSet::new(),
             accent_art: false,
+            follow_system: false,
+            close_to_tray: false,
+            shortcuts: Default::default(),
         }
     }
 }
@@ -62,6 +71,11 @@ impl Preferences {
         if prefs.hidden.len() > 2000 {
             prefs.hidden.clear();
         }
+        for shortcut in &mut prefs.shortcuts {
+            if shortcut.len() > 64 {
+                shortcut.clear();
+            }
+        }
         Ok(prefs)
     }
     pub fn save(&self) -> Result<(), String> {
@@ -92,6 +106,8 @@ mod tests {
         assert!(!prefs.local_history);
         assert!(!prefs.autoplay);
         assert_eq!(prefs.volume, 35.0);
+        assert!(!prefs.follow_system && !prefs.close_to_tray);
+        assert!(prefs.shortcuts.iter().all(String::is_empty));
         let json = serde_json::to_string(&prefs).unwrap();
         assert!(!json.contains("token"));
         assert!(!json.contains("credential"));

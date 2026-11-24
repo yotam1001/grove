@@ -11,8 +11,10 @@ import { LibraryPage } from "pages/library.slint";
 import { NowPlayingView } from "pages/now_playing.slint";
 import { QueueDrawer } from "pages/queue.slint";
 import { SettingsPage } from "pages/settings.slint";
+import { GroveSystem, CrashNotice } from "system.slint";
 
 export { GroveTrack, GrovePlaylist, GroveJamTrack, GroveFeatureTrack, GroveLyricLine, GroveTheme, GroveMotion }
+export { GroveSystem }
 
 // The window keeps every property and callback the Rust side uses; pages and the
 // player bar receive them through bindings.
@@ -219,6 +221,12 @@ export component GroveWindow inherits Window {
     Timer { interval: 16ms; running: root.page-entering; triggered => { root.page-entering = false; } }
     changed width => { root.narrow = root.width < 880px; root.wide = root.width >= 1000px; root.sidebar-wide = !root.compact-mode && root.width >= 880px; root.dock-room = root.width >= 1360px; }
 
+    forward-focus: window-keys;
+    // Space and arrows reach the player unless a text field has focus; a
+    // focused slider keeps its own arrow keys. See crates/grove/src/shortcuts.rs.
+    window-keys := FocusScope {
+    capture-key-pressed(event) => { if event.text == " " && !TextInputInterface.text-input-focused && !event.modifiers.control && !event.modifiers.alt && !event.modifiers.meta && GroveSystem.shortcut-recording-index < 0 && !event.repeat { if GroveSystem.window-key("space") { return accept; } } return reject; }
+    key-pressed(event) => { if (event.text == Key.LeftArrow || event.text == Key.RightArrow) && !TextInputInterface.text-input-focused && !event.modifiers.control && !event.modifiers.alt && !event.modifiers.meta && !event.modifiers.shift { if GroveSystem.window-key(event.text == Key.LeftArrow ? "left" : "right") { return accept; } } return reject; }
     VerticalLayout {
         spacing: 0; padding: 0;
         if !root.mini : HorizontalLayout {
@@ -259,6 +267,7 @@ export component GroveWindow inherits Window {
                     }
                     if root.message != "" : Text { text: root.message; color: GroveTheme.warning; font-size: 13px; wrap: word-wrap; }
                     if root.feature-message != "" : Text { text: root.feature-message; color: GroveTheme.secondary; font-size: 13px; wrap: word-wrap; }
+                    if GroveSystem.crash-pending : CrashNotice {}
                     if root.edit-track != "" : PlaylistEditor {
                         removing-from-playlist: root.removing-from-playlist;
                         collection-title: root.collection-title;
@@ -526,5 +535,6 @@ export component GroveWindow inherits Window {
             toggle-autoplay => { root.appearance("autoplay"); }
             close => { root.queue-open = false; }
         }
+    }
     }
 }

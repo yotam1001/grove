@@ -1,0 +1,231 @@
+// Building blocks for Settings: grouped cards, labelled switch rows, segmented
+// choices and shortcut recorders. Each Settings area is a `SettingsCard` with
+// rows inside, so another area can be mounted in ui/pages/settings.slint with
+// one line, e.g. `SettingsAudio { }` from its own settings_audio.slint:
+//
+//     export component SettingsAudio inherits SettingsCard {
+//         title: "Audio"; subtitle: "Output and volume.";
+//         SettingSwitch { text: "Normalize volume"; note: "…"; checked: …; toggled => { … } }
+//         SettingRow { text: "Output device"; note: "…"; GroveButton { … } }
+//     }
+import { Button } from "std-widgets.slint";
+import { GroveTheme } from "theme.slint";
+import { GroveButton, GroveSwitch } from "components.slint";
+
+// A titled card. Children stack vertically below the header with dividers
+// drawn by the rows themselves.
+export component SettingsCard inherits Rectangle {
+    in property <string> title;
+    in property <string> subtitle;
+    border-radius: 14px;
+    background: GroveTheme.surface;
+    border-width: 1px;
+    border-color: GroveTheme.line;
+    vertical-stretch: 0;
+    VerticalLayout {
+        padding-top: 16px; padding-bottom: 8px; spacing: 0px;
+        VerticalLayout {
+            padding-left: 18px; padding-right: 18px; padding-bottom: 6px; spacing: 3px;
+            Text { text: root.title; color: GroveTheme.text; font-size: 17px; font-weight: 650; overflow: elide; }
+            if root.subtitle != "" : Text { text: root.subtitle; color: GroveTheme.muted; font-size: 12.5px; wrap: word-wrap; }
+        }
+        @children
+    }
+}
+
+// A row with a label and note on the left and any controls on the right.
+// The text wraps at narrow widths; the controls keep their size.
+export component SettingRow inherits Rectangle {
+    in property <string> text;
+    in property <string> note;
+    in property <bool> separator: true;
+    in property <length> controls-width: 160px;
+    if root.separator : Rectangle { x: 18px; y: 0px; width: parent.width - 36px; height: 1px; background: GroveTheme.line; }
+    HorizontalLayout {
+        padding-left: 18px; padding-right: 18px; padding-top: 10px; padding-bottom: 10px; spacing: 16px;
+        VerticalLayout {
+            horizontal-stretch: 1; min-width: 0px; alignment: center; spacing: 2px;
+            Text { text: root.text; color: GroveTheme.text; font-size: 14px; font-weight: 600; wrap: word-wrap; }
+            if root.note != "" : Text { text: root.note; color: GroveTheme.muted; font-size: 12.5px; wrap: word-wrap; }
+        }
+        HorizontalLayout { alignment: end; spacing: 8px; min-width: root.controls-width; horizontal-stretch: 0; @children }
+    }
+}
+
+// A labelled switch row: the whole row toggles, the switch shows the state.
+export component SettingSwitch inherits Rectangle {
+    in property <string> text;
+    in property <string> note;
+    in property <bool> checked;
+    in property <bool> enabled: true;
+    in property <bool> separator: true;
+    callback toggled;
+    opacity: root.enabled ? 1 : 0.55;
+    if root.separator : Rectangle { x: 18px; y: 0px; width: parent.width - 36px; height: 1px; background: GroveTheme.line; }
+    Rectangle {
+        x: 6px; y: 2px; width: parent.width - 12px; height: parent.height - 4px; border-radius: 9px;
+        background: touch.has-hover && root.enabled ? GroveTheme.selected.with-alpha(0.55) : transparent;
+        animate background { duration: 120ms; }
+    }
+    HorizontalLayout {
+        padding-left: 18px; padding-right: 18px; padding-top: 10px; padding-bottom: 10px; spacing: 16px;
+        VerticalLayout {
+            horizontal-stretch: 1; min-width: 0px; alignment: center; spacing: 2px;
+            Text { text: root.text; color: GroveTheme.text; font-size: 14px; font-weight: 600; wrap: word-wrap; }
+            if root.note != "" : Text { text: root.note; color: GroveTheme.muted; font-size: 12.5px; wrap: word-wrap; }
+        }
+        VerticalLayout {
+            alignment: center; horizontal-stretch: 0; width: 44px;
+            toggle := GroveSwitch { text: ""; checked: root.checked; accessible-label: root.text; toggled => { if root.enabled { root.toggled(); } } }
+        }
+    }
+    touch := TouchArea { enabled: root.enabled; mouse-cursor: pointer; clicked => { root.toggled(); } }
+}
+
+// Two to four mutually exclusive options, drawn as one segmented pill.
+export component SegmentedChoice inherits Rectangle {
+    in property <[string]> options;
+    in property <int> selected;
+    in property <string> label;
+    callback chosen(int);
+    height: 34px;
+    min-width: root.options.length * 78px;
+    border-radius: 17px;
+    background: GroveTheme.canvas;
+    border-width: 1px; border-color: GroveTheme.line;
+    accessible-role: tab-list;
+    accessible-label: root.label;
+    HorizontalLayout {
+        padding: 3px; spacing: 2px;
+        for option[index] in root.options : Rectangle {
+            border-radius: 14px;
+            horizontal-stretch: 1;
+            background: index == root.selected ? GroveTheme.accent : area.has-hover ? GroveTheme.selected : transparent;
+            border-width: focus.has-focus ? 2px : 0px; border-color: GroveTheme.text;
+            accessible-role: tab;
+            accessible-label: option;
+            accessible-item-selected: index == root.selected;
+            accessible-action-default => { root.chosen(index); }
+            animate background { duration: 120ms; }
+            Text {
+                text: option; color: index == root.selected ? GroveTheme.on-accent : GroveTheme.secondary;
+                font-size: 13px; font-weight: index == root.selected ? 650 : 500;
+                horizontal-alignment: center; vertical-alignment: center;
+            }
+            area := TouchArea { mouse-cursor: pointer; clicked => { root.chosen(index); } }
+            focus := FocusScope {
+                focus-on-click: false;
+                key-pressed(event) => {
+                    if event.text == Key.Space || event.text == Key.Return { root.chosen(index); return accept; }
+                    return reject;
+                }
+            }
+        }
+    }
+}
+
+// One key of a shortcut, drawn as a keycap with a little depth.
+export component KeyCap inherits Rectangle {
+    in property <string> text;
+    height: 26px;
+    width: max(26px, cap-text.preferred-width + 16px);
+    border-radius: 6px;
+    background: GroveTheme.border;
+    Rectangle {
+        x: 0px; y: 0px; width: parent.width; height: parent.height - 2px; border-radius: 6px;
+        background: GroveTheme.canvas;
+        border-width: 1px; border-color: GroveTheme.line;
+        cap-text := Text {
+            text: root.text; color: GroveTheme.text; font-size: 12px; font-weight: 700;
+            horizontal-alignment: center; vertical-alignment: center;
+        }
+    }
+}
+
+// A global shortcut recorder (ported from Tide's ShortcutSetting). Clicking the
+// field moves focus into a private scope that receives the next key chord;
+// losing focus or pressing Esc cancels. No keyboard hook is involved.
+export component ShortcutRow inherits Rectangle {
+    in property <string> action;
+    in property <string> binding;
+    in property <bool> recording;
+    in property <bool> enabled: true;
+    in property <bool> separator: true;
+    callback record();
+    callback clear();
+    callback cancel();
+    callback captured(string, bool, bool, bool, bool);
+    private property <bool> has-ctrl: root.binding.replace-all("Ctrl+", "") != root.binding;
+    private property <bool> has-alt: root.binding.replace-all("Alt+", "") != root.binding;
+    private property <bool> has-shift: root.binding.replace-all("Shift+", "") != root.binding;
+    private property <string> key: root.binding.replace-all("Ctrl+", "").replace-all("Alt+", "").replace-all("Shift+", "");
+    opacity: root.enabled ? 1 : 0.55;
+    changed recording => { if !root.recording && capture.has-focus { key-action.focus(); } }
+    capture := FocusScope {
+        width: 0px; height: 0px;
+        focus-on-click: false; focus-on-tab-navigation: false;
+        focus-lost(reason) => { if root.recording { root.cancel(); } }
+        key-pressed(event) => {
+            if !root.recording { return reject; }
+            if event.text == Key.Escape { root.cancel(); }
+            else { root.captured(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift, event.modifiers.meta); }
+            return accept;
+        }
+    }
+    if root.separator : Rectangle { x: 18px; y: 0px; width: parent.width - 36px; height: 1px; background: GroveTheme.line; }
+    HorizontalLayout {
+        padding-left: 18px; padding-right: 12px; padding-top: 8px; padding-bottom: 8px; spacing: 8px;
+        Text { horizontal-stretch: 1; min-width: 0px; text: root.action; color: GroveTheme.text; font-size: 14px; font-weight: 600; overflow: elide; vertical-alignment: center; }
+        Rectangle {
+            width: max(176px, caps.preferred-width + 20px); height: 38px; border-radius: 9px;
+            background: root.recording ? GroveTheme.selected : key-action.pressed ? GroveTheme.pressed : key-touch.has-hover ? GroveTheme.selected : GroveTheme.canvas;
+            border-width: key-action.has-focus || root.recording ? 2px : 1px;
+            border-color: key-action.has-focus || root.recording ? GroveTheme.accent : GroveTheme.line;
+            animate background { duration: 120ms; }
+            if root.recording : Text {
+                text: "Press a shortcut…"; color: GroveTheme.accent; font-size: 12.5px; font-weight: 700;
+                horizontal-alignment: center; vertical-alignment: center;
+            }
+            if !root.recording && root.binding == "" : Text {
+                text: "Not set · click to record"; color: GroveTheme.muted; font-size: 12px;
+                horizontal-alignment: center; vertical-alignment: center;
+            }
+            caps := HorizontalLayout {
+                visible: !root.recording && root.binding != "";
+                alignment: center; spacing: 4px; padding-top: 6px; padding-bottom: 6px;
+                if root.has-ctrl : KeyCap { text: "Ctrl"; }
+                if root.has-alt : KeyCap { text: "Alt"; }
+                if root.has-shift : KeyCap { text: "Shift"; }
+                if root.key != "" : KeyCap { text: root.key; }
+            }
+            key-touch := TouchArea {
+                enabled: root.enabled;
+                mouse-cursor: pointer;
+                key-action := Button {
+                    width: parent.width; height: parent.height; opacity: 0; text: "";
+                    enabled: root.enabled;
+                    accessible-label: root.action + " shortcut, " + (root.recording ? "recording, press keys" : root.binding == "" ? "not set" : root.binding.replace-all("+", " ")) + ". Record a new shortcut";
+                    clicked => { capture.focus(); root.record(); }
+                }
+            }
+        }
+        // Cancel while recording, Clear when set: separate buttons so a press
+        // that ends recording can never also clear the saved shortcut.
+        Rectangle {
+            width: 72px; height: 34px;
+            if root.recording : GroveButton { flat: true; text: "Cancel"; label: "Cancel recording the " + root.action + " shortcut"; clicked => { root.cancel(); } }
+            if !root.recording && root.binding != "" : GroveButton { flat: true; text: "Clear"; label: "Clear the " + root.action + " shortcut"; clicked => { root.clear(); } }
+        }
+    }
+}
+
+// A short status line inside a card (saved, conflicts, update progress).
+export component SettingStatus inherits VerticalLayout {
+    in property <string> text;
+    in property <bool> attention: false;
+    if root.text != "" : HorizontalLayout {
+        padding-left: 18px; padding-right: 18px; padding-bottom: 8px; spacing: 8px;
+        Rectangle { width: 7px; Rectangle { y: (parent.height - 7px) / 2; width: 7px; height: 7px; border-radius: 3.5px; background: root.attention ? GroveTheme.warning : GroveTheme.accent; } }
+        Text { text: root.text; color: root.attention ? GroveTheme.warning : GroveTheme.secondary; font-size: 12.5px; wrap: word-wrap; vertical-alignment: center; }
+    }
+}
