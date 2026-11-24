@@ -14,4 +14,5 @@ pub mod reconnect;
 pub mod recovery;
 pub mod resume;
 pub mod settings;
+pub mod sink;
 pub mod sleep;

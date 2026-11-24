@@ -29,6 +29,9 @@ tide-playback = { path = "../playback" }
 rfd = "0.17.2"
 semver = "1"
 sha2 = "0.10"
+# Grove's own librespot sink: device choice, EQ, fades and output-loss detection.
+rodio = { version = "0.21", default-features = false, features = ["playback"] }
+cpal = "0.16"
 
 [build-dependencies]
 slint-build = "=1.18.1"

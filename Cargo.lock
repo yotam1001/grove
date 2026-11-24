@@ -1761,6 +1761,7 @@ checksum = "b40ca9252762c466af32d0b1002e91e4e1bc5398f77455e55474deb466355ff5"
 name = "grove-music"
 version = "0.1.0-beta.1"
 dependencies = [
+ "cpal",
  "image",
  "keyring",
  "librespot-connect",
@@ -1773,6 +1774,7 @@ dependencies = [
  "reqwest",
  "resvg",
  "rfd",
+ "rodio",
  "semver",
  "serde",
  "serde_json",
