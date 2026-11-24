@@ -40,6 +40,7 @@ enum Pending {
     Mutation,
     Metadata(String),
     Saved(String),
+    Related(String),
     Enqueue,
     JamMatch {
         invite: String,
@@ -74,6 +75,7 @@ pub struct Features {
     jam_pairs: tide_jam::matching::Pairings,
     jam_remote: String,
     jam_candidates: Vec<Track>,
+    related: Vec<Track>,
 }
 impl Features {
     pub fn install(ui: &GroveWindow, tx: RequestSender, offline: bool) -> Rc<RefCell<Self>> {
@@ -101,6 +103,7 @@ impl Features {
             jam_pairs: Default::default(),
             jam_remote: String::new(),
             jam_candidates: vec![],
+            related: vec![],
         }));
         jam_match::bind(ui, &this);
         navigation::bind(ui, &this);
@@ -167,7 +170,7 @@ impl Features {
         if matches!(pending,Pending::Page{epoch,..} if epoch!=self.epoch) {
             return;
         }
-        if matches!(&pending,Pending::Metadata(uri)|Pending::Saved(uri) if ui.get_current_uri().as_str()!=uri)
+        if matches!(&pending,Pending::Metadata(uri)|Pending::Saved(uri)|Pending::Related(uri) if ui.get_current_uri().as_str()!=uri)
         {
             return;
         }
@@ -186,6 +189,8 @@ impl Features {
             Err(e) => {
                 if matches!(pending, Pending::JamAdd { .. } | Pending::JamMatch { .. }) {
                     ui.set_jam_message(e.into());
+                } else if matches!(pending, Pending::Related(_)) {
+                    self.related_failed(ui, &e);
                 } else if matches!(pending, Pending::Enqueue) {
                     ui.set_message(e.into());
                 } else {
@@ -207,6 +212,7 @@ impl Features {
             Pending::Mutation => self.mutation_confirmed(ui, &data),
             Pending::Metadata(uri) => self.metadata_loaded(ui, &data, uri),
             Pending::Saved(uri) => self.saved_loaded(ui, &data, uri),
+            Pending::Related(_) => self.related_loaded(ui, &data),
         }
     }
     fn render(&mut self, ui: &GroveWindow) {

@@ -1,7 +1,10 @@
-// Queue (page 1): Grove's editable queue, then Spotify's own queue.
-import { GroveTrack } from "../model.slint";
-import { GroveButton } from "../components.slint";
-import { GroveTheme } from "../theme.slint";
+// The queue (#27). `QueueDrawer` is the side drawer: the current song, your
+// manual queue with drag handles, the autoplay section, Spotify's own queue,
+// related songs and search. `QueuePage` is the earlier page, kept for callers.
+import { Button, LineEdit, ScrollView } from "std-widgets.slint";
+import { GroveTrack, GroveFeatureTrack } from "../model.slint";
+import { GroveButton, GroveChip, GroveCover, GroveEmpty, GroveEyebrow, GroveLine, GroveSwitch, Mark, Rule } from "../components.slint";
+import { GroveTheme, GroveMotion } from "../theme.slint";
 
 export component QueuePage inherits VerticalLayout {
     in property <[GroveTrack]> local-queue;
@@ -21,32 +24,272 @@ export component QueuePage inherits VerticalLayout {
             spacing: 8px; height: 58px;
             VerticalLayout {
                 alignment: center;
-                Text { text: track.title; color: GroveTheme.text; overflow: elide; }
-                Text { text: track.artist; color: GroveTheme.muted; font-size: 12px; overflow: elide; }
+                GroveLine { text: track.title; }
+                GroveLine { text: track.artist; ink: GroveTheme.muted; font-size: 12px; }
             }
-            GroveButton { text: "↑"; width: 40px; enabled: index > 0; clicked => { root.queue-edit("up",index); } }
-            GroveButton { text: "↓"; width: 40px; enabled: index + 1 < root.local-queue.length; clicked => { root.queue-edit("down",index); } }
+            GroveButton { icon: "up"; width: 40px; label: "Move up"; enabled: index > 0; clicked => { root.queue-edit("up",index); } }
+            GroveButton { icon: "down"; width: 40px; label: "Move down"; enabled: index + 1 < root.local-queue.length; clicked => { root.queue-edit("down",index); } }
             GroveButton { text: "Remove"; width: 86px; clicked => { root.queue-edit("remove",index); } }
         }
     }
     if root.tracks.length > 0 : VerticalLayout {
         spacing: 16px; vertical-stretch: 0;
-        HorizontalLayout {
-            Text { text: root.local-queue.length > 0 ? "From Spotify" : "Up next"; color: GroveTheme.text; font-size: 24px; font-weight: 600; }
+        Text { text: root.local-queue.length > 0 ? "From Spotify" : "Up next"; color: GroveTheme.text; font-size: 24px; font-weight: 600; }
+        for track[index] in root.tracks : HorizontalLayout {
+            spacing: 18px; height: 56px;
+            Text { text: index + 1; color: GroveTheme.muted; width: 24px; vertical-alignment: center; }
+            VerticalLayout {
+                alignment: center; spacing: 3px;
+                GroveLine { text: track.title; }
+                GroveLine { text: track.artist; ink: GroveTheme.muted; font-size: 12px; }
+            }
+            Text { text: track.duration; color: GroveTheme.muted; width: 40px; vertical-alignment: center; }
+        }
+    }
+}
 
+// A queue entry: optional drag handle, cover placeholder, title and hover actions.
+component QueueRow inherits Rectangle {
+    in property <GroveTrack> track;
+    in property <bool> draggable;
+    in property <bool> dragging;
+    in property <length> shift;
+    in property <bool> removable;
+    in property <bool> addable;
+    in property <bool> can-up;
+    in property <bool> can-down;
+    in property <bool> enabled: true;
+    in property <string> tag;
+    callback remove;
+    callback add;
+    callback move(int);
+    callback drag-start;
+    callback drag-move(length);
+    callback drag-end;
+    height: 56px;
+    z: root.dragging ? 10 : 0;
+    private property <bool> show-actions: (row-touch.has-hover || handle.pressed) && root.enabled;
+    row-touch := TouchArea { }
+    body := Rectangle {
+        y: root.dragging ? 0px : root.shift;
+        animate y { duration: root.dragging ? 0ms : GroveMotion.base; easing: ease-out; }
+        border-radius: GroveTheme.radius-md;
+        background: root.dragging ? GroveTheme.raised : row-touch.has-hover ? GroveTheme.hover : transparent;
+        drop-shadow-blur: root.dragging ? GroveTheme.elevation-2 : 0px;
+        drop-shadow-offset-y: root.dragging ? 6px : 0px;
+        drop-shadow-color: GroveTheme.shadow;
+        animate background { duration: GroveMotion.fast; }
+        HorizontalLayout {
+            padding-left: 4px; padding-right: 6px; spacing: 10px; cross-axis-alignment: center;
+            Rectangle {
+                width: 22px; height: 40px;
+                if root.draggable : Mark { kind: "grip"; ink: handle.has-hover || root.dragging ? GroveTheme.text : GroveTheme.muted; width: 16px; height: 16px; x: 3px; y: 12px; }
+            }
+            GroveCover { width: 40px; height: 40px; seed: root.track.title; }
+            VerticalLayout {
+                horizontal-stretch: 1; min-width: 0px; alignment: center;
+                GroveLine { text: root.track.title; font-size: 13px; font-weight: 600; }
+                GroveLine { text: root.track.artist; font-size: 12px; ink: GroveTheme.muted; }
+            }
+            if !root.show-actions && root.tag != "" : Text { text: root.tag; color: GroveTheme.muted; font-size: 11px; vertical-alignment: center; }
+            if !root.show-actions : Text { text: root.track.duration; color: GroveTheme.muted; font-size: 12px; vertical-alignment: center; }
+            if root.show-actions && root.draggable : GroveButton { icon: "up"; flat: true; round: true; width: 30px; height: 30px; icon-size: 15px; label: "Move " + root.track.title + " up"; enabled: root.can-up; clicked => { root.move(-1); } }
+            if root.show-actions && root.draggable : GroveButton { icon: "down"; flat: true; round: true; width: 30px; height: 30px; icon-size: 15px; label: "Move " + root.track.title + " down"; enabled: root.can-down; clicked => { root.move(1); } }
+            if root.show-actions && root.addable : GroveButton { icon: "plus"; flat: true; round: true; width: 30px; height: 30px; icon-size: 15px; label: "Add " + root.track.title + " to your queue"; clicked => { root.add(); } }
+            if root.show-actions && root.removable : GroveButton { icon: "close"; flat: true; round: true; width: 30px; height: 30px; icon-size: 15px; label: "Remove " + root.track.title + " from the queue"; clicked => { root.remove(); } }
+        }
+    }
+    // The handle keeps pointer capture while the row moves under it.
+    handle := TouchArea {
+        x: 0px; width: 30px; height: parent.height;
+        enabled: root.draggable && root.enabled;
+        mouse-cursor: root.dragging ? grabbing : grab;
+        accessible-role: button;
+        accessible-label: "Drag to reorder " + root.track.title;
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down && event.button == PointerEventButton.left { root.drag-start(); }
+            if (event.kind == PointerEventKind.up && event.button == PointerEventButton.left) || event.kind == PointerEventKind.cancel { root.drag-end(); }
+        }
+        moved => { if self.pressed { root.drag-move(self.mouse-y - self.pressed-y); } }
+    }
+}
+
+export component QueueDrawer inherits Rectangle {
+    in property <[GroveTrack]> local-queue;
+    in property <[GroveTrack]> tracks;
+    in property <[GroveTrack]> autoplay-next;
+    in property <bool> autoplay;
+    in property <bool> enabled: true;
+    in property <bool> can-play;
+    in property <string> current-title;
+    in property <string> current-artist;
+    in property <image> current-cover;
+    in property <bool> has-current;
+    in property <[GroveFeatureTrack]> related;
+    // 0 idle, 1 loading, 2 ready, 3 nothing found.
+    in property <int> related-state;
+    in property <string> related-note;
+    in-out property <bool> related-open: false;
+    in-out property <string> query;
+    in property <[GroveTrack]> search-results;
+    // Per result: the manual queue index, or -(autoplay index + 1).
+    in property <[int]> search-index;
+    in-out property <string> link;
+    in property <bool> can-add-link;
+    in property <string> message;
+    callback enqueue-link;
+    callback queue-edit(string,int);
+    callback queue-move(int,int);
+    callback queue-filter(string);
+    callback load-related;
+    callback related-action(string,int);
+    callback autoplay-action(string,int);
+    callback toggle-autoplay;
+    callback close;
+
+    private property <bool> searching: root.query != "";
+    private property <bool> search-open: false;
+    private property <bool> link-open: false;
+    private property <length> row-height: 56px;
+    private property <int> drag-from: -1;
+    private property <length> drag-dy: 0px;
+    private property <int> drag-to: root.drag-from < 0 ? -1 : max(0, min(root.local-queue.length - 1, root.drag-from + round(root.drag-dy / root.row-height)));
+    function shift-for(index: int) -> length {
+        if root.drag-from < 0 || index == root.drag-from { return 0px; }
+        if root.drag-from < root.drag-to && index > root.drag-from && index <= root.drag-to { return -root.row-height; }
+        if root.drag-from > root.drag-to && index >= root.drag-to && index < root.drag-from { return root.row-height; }
+        return 0px;
+    }
+    changed local-queue => { root.drag-from = -1; root.drag-dy = 0px; }
+
+    background: GroveTheme.overlay;
+    border-width: 0px;
+    drop-shadow-blur: GroveTheme.elevation-3;
+    drop-shadow-color: GroveTheme.shadow;
+    TouchArea { }
+    Rectangle { x: 0px; width: 1px; background: GroveTheme.line; }
+
+    VerticalLayout {
+        padding: 16px; padding-right: 12px; spacing: 10px;
+        HorizontalLayout {
+            height: 36px; spacing: 4px; cross-axis-alignment: center;
+            Text { text: root.related-open ? "Related songs" : "Queue"; color: GroveTheme.text; font-size: 20px; font-weight: 700; horizontal-stretch: 1; vertical-alignment: center; }
+            if !root.related-open : GroveButton { icon: "search"; flat: true; round: true; width: 34px; height: 34px; icon-size: 17px; selected: root.search-open || root.searching; label: "Search the queue"; clicked => { root.search-open = !(root.search-open || root.searching); if !root.search-open { root.query = ""; root.queue-filter(""); } } }
+            if !root.related-open : GroveButton { icon: "link"; flat: true; round: true; width: 34px; height: 34px; icon-size: 17px; selected: root.link-open; label: root.link-open ? "Close song link" : "Add a song link"; clicked => { root.link-open = !root.link-open; } }
+            if !root.related-open && root.local-queue.length > 0 : GroveButton { text: "Clear"; flat: true; width: 64px; height: 34px; enabled: root.enabled; label: "Clear your queue"; clicked => { root.queue-edit("clear",0); } }
+            GroveButton { icon: "close"; flat: true; round: true; width: 34px; height: 34px; icon-size: 17px; label: "Close the queue"; clicked => { root.drag-from = -1; root.close(); } }
+        }
+        HorizontalLayout {
+            spacing: 8px; height: 32px; alignment: start;
+            GroveChip { text: "Up next"; icon: "queue-play"; active: !root.related-open; clicked => { root.related-open = false; } }
+            GroveChip { text: "Related"; icon: "listen"; active: root.related-open; enabled: root.has-current; label: "Songs related to the current track"; clicked => { root.related-open = true; root.load-related(); } }
+        }
+        if !root.related-open && root.link-open : HorizontalLayout {
+            spacing: 6px; height: 38px;
+            LineEdit { horizontal-stretch: 1; text <=> root.link; placeholder-text: "Paste a Spotify song link"; accessible-label: "Spotify song link"; accepted => { root.enqueue-link(); } }
+            GroveButton { text: "Add"; accent: true; round: true; width: 64px; enabled: root.can-add-link; clicked => { root.enqueue-link(); } }
+        }
+        if !root.related-open && root.message != "" : Text { text: root.message; color: GroveTheme.warning; font-size: 12px; wrap: word-wrap; }
+        if !root.related-open && (root.search-open || root.searching) : HorizontalLayout {
+            spacing: 6px; height: 38px;
+            LineEdit { horizontal-stretch: 1; text <=> root.query; placeholder-text: "Search the queue"; accessible-label: "Filter the queue by title or artist"; edited(text) => { root.queue-filter(text); } }
         }
 
-        for track[index] in root.tracks : Rectangle {
-            height: 56px; background: transparent;
-            HorizontalLayout {
-                spacing: 18px;
-                Text { text: index + 1; color: GroveTheme.muted; width: 24px; vertical-alignment: center; }
-                VerticalLayout {
-                    alignment: center; spacing: 3px;
-                    Text { text: track.title; color: GroveTheme.text; font-size: 14px; overflow: elide; }
-                    Text { text: track.artist; color: GroveTheme.muted; font-size: 12px; overflow: elide; }
+        // Up next.
+        if !root.related-open : ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                spacing: 0px; alignment: start;
+                if root.searching && root.search-results.length == 0 : GroveEmpty { icon: "search"; heading: "No matching songs"; detail: "Try another title or artist."; }
+                if root.searching : GroveEyebrow { text: "MATCHES"; height: 28px; visible: root.search-results.length > 0; }
+                for track[i] in (root.searching ? root.search-results : []) : QueueRow {
+                    track: track; enabled: root.enabled;
+                    removable: root.search-index[i] >= 0; addable: root.search-index[i] < 0;
+                    tag: root.search-index[i] < 0 ? "Autoplay" : "Queue";
+                    remove => { root.queue-edit("remove", root.search-index[i]); }
+                    add => { root.autoplay-action("queue", -root.search-index[i] - 1); }
                 }
-                Text { text: track.duration; color: GroveTheme.muted; width: 40px; vertical-alignment: center; }
+
+                if !root.searching : GroveEyebrow { text: "NOW PLAYING"; height: 28px; }
+                if !root.searching : HorizontalLayout {
+                    height: 60px; spacing: 10px; padding-left: 30px; cross-axis-alignment: center;
+                    GroveCover { width: 44px; height: 44px; source: root.current-cover; seed: root.current-title; }
+                    VerticalLayout {
+                        horizontal-stretch: 1; min-width: 0px; alignment: center;
+                        GroveLine { text: root.has-current ? root.current-title : "Nothing playing"; font-size: 14px; font-weight: 650; ink: root.has-current ? GroveTheme.accent : GroveTheme.muted; }
+                        if root.has-current : GroveLine { text: root.current-artist; font-size: 12px; ink: GroveTheme.muted; }
+                    }
+                }
+
+                if !root.searching : HorizontalLayout {
+                    height: 34px; padding-top: 6px;
+                    GroveEyebrow { text: "NEXT IN QUEUE"; horizontal-stretch: 1; }
+                    if root.local-queue.length > 1 : Text { text: "Drag to reorder"; color: GroveTheme.muted; font-size: 11px; vertical-alignment: center; }
+                }
+                if !root.searching && root.local-queue.length == 0 : Text { height: 40px; text: "Your queue is empty. Use Add to queue on any song."; color: GroveTheme.muted; font-size: 12px; wrap: word-wrap; vertical-alignment: center; }
+                for track[index] in (root.searching ? [] : root.local-queue) : QueueRow {
+                    track: track; enabled: root.enabled;
+                    draggable: root.local-queue.length > 1; removable: true;
+                    dragging: root.drag-from == index;
+                    shift: root.shift-for(index);
+                    can-up: index > 0; can-down: index + 1 < root.local-queue.length;
+                    remove => { root.queue-edit("remove", index); }
+                    move(delta) => { root.queue-edit(delta < 0 ? "up" : "down", index); }
+                    drag-start => { root.drag-from = index; root.drag-dy = 0px; }
+                    drag-move(dy) => { if root.drag-from == index { root.drag-dy = dy; } }
+                    drag-end => {
+                        if root.drag-from == index {
+                            let target = root.drag-to;
+                            root.drag-from = -1; root.drag-dy = 0px;
+                            if target >= 0 && target != index { root.queue-move(index, target); }
+                        }
+                    }
+                }
+
+                if !root.searching : HorizontalLayout {
+                    height: 40px; padding-top: 10px; spacing: 8px;
+                    GroveEyebrow { text: "NEXT FROM AUTOPLAY"; horizontal-stretch: 1; }
+                    GroveSwitch { text: ""; checked: root.autoplay; accessible-label: "Autoplay"; toggled => { root.toggle-autoplay(); } }
+                }
+                if !root.searching && !root.autoplay : Text { height: 36px; text: "Autoplay is off. Turn it on to keep music going after your queue."; color: GroveTheme.muted; font-size: 12px; wrap: word-wrap; vertical-alignment: center; }
+                if !root.searching && root.autoplay && root.autoplay-next.length == 0 : Text { height: 36px; text: "Autoplay continues with songs from Home once they load. Hidden songs are skipped."; color: GroveTheme.muted; font-size: 12px; wrap: word-wrap; vertical-alignment: center; }
+                for track[index] in (root.searching || !root.autoplay ? [] : root.autoplay-next) : QueueRow {
+                    track: track; enabled: root.enabled; addable: true; tag: "Autoplay";
+                    add => { root.autoplay-action("queue", index); }
+                }
+
+                if !root.searching && root.tracks.length > 0 : GroveEyebrow { text: "FROM SPOTIFY"; height: 40px; }
+                for track[index] in (root.searching ? [] : root.tracks) : QueueRow { track: track; enabled: root.enabled; }
+            }
+        }
+
+        // Related songs: browse without changing what's playing.
+        if root.related-open : Text { text: root.related-note != "" ? root.related-note : "Browsing here never changes what's playing."; color: GroveTheme.muted; font-size: 12px; wrap: word-wrap; }
+        if root.related-open && root.related-state != 2 : GroveEmpty {
+            vertical-stretch: 1; icon: "listen";
+            heading: root.related-state == 1 ? "Finding related songs…" : root.related-state == 3 ? "No related songs found" : "Play a song to see related music";
+            detail: "";
+        }
+        if root.related-open && root.related-state == 2 : ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                alignment: start; spacing: 0px;
+                for song[index] in root.related : Rectangle {
+                    height: 56px; border-radius: GroveTheme.radius-md;
+                    background: related-touch.has-hover ? GroveTheme.hover : transparent;
+                    related-touch := TouchArea { }
+                    HorizontalLayout {
+                        padding-left: 6px; padding-right: 6px; spacing: 10px; cross-axis-alignment: center;
+                        GroveCover { width: 40px; height: 40px; source: song.cover; seed: song.title; }
+                        VerticalLayout {
+                            horizontal-stretch: 1; min-width: 0px; alignment: center;
+                            GroveLine { text: song.title; font-size: 13px; font-weight: 600; }
+                            GroveLine { text: song.artist; font-size: 12px; ink: GroveTheme.muted; }
+                        }
+                        GroveButton { icon: "play"; flat: true; round: true; width: 30px; height: 30px; icon-size: 14px; enabled: root.can-play; label: "Play " + song.title; clicked => { root.related-action("play", index); } }
+                        GroveButton { icon: "plus"; flat: true; round: true; width: 30px; height: 30px; icon-size: 15px; enabled: root.enabled; label: "Add " + song.title + " to your queue"; clicked => { root.related-action("queue", index); } }
+                    }
+                }
             }
         }
     }
