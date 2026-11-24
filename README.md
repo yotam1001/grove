@@ -18,7 +18,7 @@ Grove is a Rust + [Slint](https://slint.dev/) desktop app. It browses your libra
 - Song menus: Play next, Add to queue, Like/Unlike, View artist, Hide, owned-playlist editing
 - Light/dark, Normal/Compact/Mini layouts, Windows media controls, opt-in session history
 - Local audio files through Tide's mpv backend (no Spotify login needed)
-- Nearby shared jams, including experimental **Tide ↔ Grove** cross-service rooms
+- Shared jams: encrypted nearby rooms, internet rooms via a free self-hostable relay, and joining **Tide** rooms (Tide ↔ Grove matching by ISRC/duration)
 - PKCE sign-in in your browser; credentials in Windows Credential Manager — Grove never sees your password
 
 Full feature/parity table: [docs/grove/TIDE_PARITY.md](docs/grove/TIDE_PARITY.md).
@@ -53,7 +53,7 @@ Then open **Account → Connect Spotify**, and **Enable playback** for the separ
 | `ui/grove.slint` | Native interface entry: `GroveWindow`, sidebar and page switching |
 | `ui/theme.slint`, `ui/components.slint`, `ui/model.slint`, `ui/player.slint` | Colour tokens, shared controls, row structs, player bar |
 | `ui/pages/` | One file per page (home and search lists, library, queue, now playing, jams, settings, account, playlist editor) |
-| `crates/jam` | Shared jam protocol, sync and transport (shared with Tide) |
+| `crates/jam` | Jam protocol, sync, encrypted nearby transport, Tide relay client and `grove-jam-relay` (interop-tested against Tide) |
 | `crates/playback`, `crates/core`, `crates/windows` | Vendored from Tide: mpv backend, shared types, Windows media integration |
 | `installer/`, `scripts/` | Per-user installer and packaging (still being decoupled from Tide's harness) |
 | `docs/` | Design notes, beta status, parity audit, jam protocol |

@@ -58,15 +58,15 @@ on a disposable playlist. Removal affects all matching copies of a song.
 
 ## Experimental jams
 
-Only trusted local networks are supported. Start or join from Shared jams.
-Each Spotify listener needs their own Premium account. Cross-service Tide/Grove
-listeners confirm a matching recording on their service, then follow host
-play/pause and approximate timing. Use matching audio recordings; videos, intros
-and different edits can shift the audio. Both apps need the updated version-2
-room protocol. Choose songs directly in the host app for mixed rooms.
+Start or join from Shared jams: nearby rooms on a private network, internet
+rooms through a relay you trust, or a Tide host's relay room. Each Spotify
+listener needs their own Premium account. Cross-service Tide/Grove listeners
+confirm a matching recording (an identical ISRC confirms itself), then follow
+host play/pause and timing. Use matching audio recordings; videos, intros and
+different edits can shift the audio.
 
-Local room traffic is unencrypted; keep invitations private. There is no
-internet relay, automatic reconnect or promise of sample-accurate audio sync.
+Nearby room traffic is encrypted with a key from the invitation; keep
+invitations private. Synchronization is approximate, not sample-accurate.
 
 ## Feedback
 
