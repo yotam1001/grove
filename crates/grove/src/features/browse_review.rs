@@ -170,6 +170,25 @@ pub fn start(ui: &GroveWindow, features: Rc<RefCell<Features>>, out: PathBuf) {
             8 => {
                 assert!(!g.get_cooldown_visible() || f.borrow().browse.cooldown.is_some());
                 f.borrow_mut().clear_cooldown(&ui);
+                // The startup playlists page (issue #3): a 429 keeps the last launch's
+                // list with the cooldown banner and Retry; a stale list says so.
+                g.set_library_tab(0);
+                let busy = json!({"account":ME,"items":[{"name":"Saved list"}],"cached":true,"stale":true,
+                    "cooldown":{"kind":"throttled","budget":"playlists","seconds":40,"quota":false,"message":crate::web_api::throttle_message(false, 40)}});
+                assert!(f.borrow_mut().playlists_note(&ui, &busy).contains("from last time"));
+                assert!(g.get_cooldown_visible());
+                assert_eq!(g.get_cooldown_seconds(), 40);
+                assert!(matches!(f.borrow().browse.cooldown.as_ref().and_then(|c| c.retry.as_ref()), Some(browse::Retry::Tab(0))));
+                let empty = json!({"account":ME,"items":[],"load_failed":true,
+                    "cooldown":{"kind":"throttled","budget":"playlists","seconds":900,"quota":true,"message":crate::web_api::throttle_message(true, 900)}});
+                assert!(f.borrow_mut().playlists_note(&ui, &empty).contains("load when the cooldown ends"));
+                assert!(g.get_cooldown_quota());
+                let stale = json!({"account":ME,"items":[{"name":"Saved list"}],"cached":true,"stale":true});
+                assert!(f.borrow_mut().playlists_note(&ui, &stale).contains("while Grove refreshes"));
+                assert!(g.get_cooldown_visible(), "a cached page must not hide a live cooldown");
+                let live = json!({"account":ME,"items":[{"name":"Saved list"}],"next":null});
+                assert_eq!(f.borrow_mut().playlists_note(&ui, &live), "Your saved playlists");
+                assert!(!g.get_cooldown_visible());
                 // Playlists tab: Liked Songs and the mix are pinned above playlists.
                 assert_eq!(g.get_library_items().row_count(), 4);
                 g.set_library_filter("shared".into());

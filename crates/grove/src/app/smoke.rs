@@ -444,6 +444,8 @@ const STAGES: &[Stage] = &[
     }),
     ("browse-collection", |ui| {
         browse_ready(ui);
+        // The sidebar highlights the open playlist, as collections.rs does.
+        ui.set_collection_uri("spotify:playlist:aaaaaaaaaaaaaaaaaaaaaa".into());
         let g = ui.global::<GroveBrowse>();
         g.set_header(GroveHeader {
             kind: "playlist".into(),
