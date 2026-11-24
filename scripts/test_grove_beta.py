@@ -3,7 +3,6 @@ import hashlib
 import importlib.util
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import tempfile
 import unittest
@@ -41,7 +40,9 @@ class PackageTests(unittest.TestCase):
 class InstallerTests(unittest.TestCase):
     def test_isolated_lifecycle(self):
         scenarios = ["fresh-remove","upgrade","preserve-extra","dependency-failure-first","dependency-failure-update","shortcut-failure","busy","unknown-root","shortcut-conflict","changed-shortcut-removal","corrupt-package","traversal-record","lock","download","archive-paths","app-entry-write-failure-first","app-entry-write-failure-update","app-entry-marker-failure","app-entry-version-update","app-entry-migration","app-entry-new-race","protocol"]
-        shell=shutil.which("pwsh") or "powershell.exe"
+        # Grove Setup and "Uninstall Grove.cmd" run these scripts with the built-in
+        # Windows PowerShell 5.1, so the lifecycle is tested with that shell too.
+        shell=os.path.join(os.environ["SystemRoot"],"System32","WindowsPowerShell","v1.0","powershell.exe")
         for scenario in scenarios:
             with self.subTest(scenario=scenario), tempfile.TemporaryDirectory(prefix="grove-install-test-") as temp:
                 fixture=Path(temp);package=fixture/"package";lines=[]

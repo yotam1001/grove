@@ -599,7 +599,12 @@ mod tests {
 
     #[test]
     fn staged_files_are_checked_by_size_and_digest() {
-        let dir = std::env::temp_dir().join(format!("grove-update-test-{}", std::process::id()));
+        // Canonical: macOS reaches its temp folder through the /var symlink,
+        // which the staging path check rightly refuses.
+        let dir = std::env::temp_dir()
+            .canonicalize()
+            .unwrap()
+            .join(format!("grove-update-test-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("GroveSetup-0.1.0-beta.2.exe");
         fs::write(&path, b"synthetic installer").unwrap();
