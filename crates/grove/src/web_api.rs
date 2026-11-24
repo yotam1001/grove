@@ -247,6 +247,13 @@ impl WebApi {
             Action::Collection { uri, offset } => {
                 let path = if uri == "liked" {
                     format!("/me/tracks?limit=50&offset={}", offset.min(100_000))
+                } else if uri.starts_with("spotify:album:") {
+                    // Jams: album entries for the shared queue (simplified track items).
+                    format!(
+                        "/albums/{}/tracks?limit=50&offset={}",
+                        entity_id(&uri, "album")?,
+                        offset.min(100_000)
+                    )
                 } else {
                     format!(
                         "/playlists/{}/items?limit=50&offset={}",

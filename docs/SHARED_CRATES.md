@@ -34,7 +34,34 @@ The cost of vendoring is drift. Two rules keep that visible:
 | `crates/core` | Synced from Tide by `scripts/sync_shared_crates.py`. No Grove changes. |
 | `crates/windows` | Synced. Grove replacement rules: the tray tooltip and menu say "Grove" instead of "Tide", and the tray icon is shown only while "Keep playing in the tray" is on (Tide always shows it). |
 | `crates/playback` | Vendored snapshot with one Grove change: the YouTube path (`yt-dlp`, next-stream preparation, cookie leases) sits behind a `youtube` cargo feature that Grove leaves off (issue #8). Once Tide has the same feature, add `playback` to the manifest's `crates` list. |
-| `crates/jam` | Owned by the shared-jams work (Tide moved its jam work to `experiments/jam` with a relay). Not under the sync script yet; protocol compatibility is tested by the jam stream. |
+| `crates/jam` | **Not vendored: Grove-owned code tested against Tide's real crate.** See below. |
+
+## The jam crate: pinned git dev-dependency instead of vendoring
+
+Tide's jam code is not a shared library any more: it lives in Tide's
+`experiments/jam` (crate `tide-jam-lab`, its own workspace) and contains only
+the HTTP relay protocol, whose timeline holds YouTube video IDs. Grove needs
+more (encrypted nearby rooms, the cross-service protocol 2, Spotify matching),
+so copying Tide's files would be mostly replacement rules. Instead:
+
+- `crates/jam` is Grove's own crate (package name `tide-jam` for history).
+  `crates/jam/src/relay.rs` mirrors Tide's protocol 1 wire format: routes,
+  headers, JSON shapes, limits and canonical endpoint rules.
+- Compatibility is **tested, not copied**. `crates/jam/Cargo.toml` has a
+  test-only git dev-dependency on `tide-jam-lab` at the same commit as
+  `crates/shared-crates.json`. `crates/jam/tests/tide_interop.rs` runs Tide's
+  own relay and client against Grove's code over loopback in the normal
+  `cargo test --workspace` job. Nothing from Tide ships in the Grove binary.
+- `TIDE_JAM_REV` in `crates/jam/src/version.rs` must equal that `rev` (a test
+  checks it). When you sync the other crates to a new Tide commit, bump the jam
+  `rev` too and run `cargo test -p tide-jam`. A protocol change on Tide's side
+  then fails the interop tests until `relay.rs` is updated.
+- The `Jam interop` workflow also runs the interop tests weekly against Tide's
+  `main`, as a non-blocking early warning, much like `status` does for the
+  vendored crates.
+
+Protocol details and what Tide still needs to adopt (nearby protocol 3,
+relay protocol 2) are in [CROSS_SERVICE_JAMS.md](CROSS_SERVICE_JAMS.md).
 
 ## Everyday use
 

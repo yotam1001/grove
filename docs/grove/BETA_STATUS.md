@@ -17,7 +17,8 @@ to distribute as a working Spotify player. No public release has been made.
   an app owner who meets Spotify's current development requirements and adds
   the testers to the allowlist. The tester does not need to share any secret.
 - Two-device Spotify jams and audible Tide ↔ Grove synchronization still need
-  live testing with eligible accounts. Jams remain experimental and local-network only.
+  live testing with eligible accounts. Internet rooms need a relay deployment
+  check (live check pending).
 
 Spotify's [quota modes](https://developer.spotify.com/documentation/web-api/concepts/quota-modes)
 describe Premium ownership and the five-user limit for a new development app.

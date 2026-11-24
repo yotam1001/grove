@@ -106,6 +106,16 @@ export component GroveWindow inherits Window {
     in property <string> jam-match-title;
     in-out property <string> jam-match-link;
     in property <[GroveFeatureTrack]> jam-matches;
+    // Jams stream: internet rooms, security, sync and voting.
+    in-out property <bool> jam-internet: false;
+    in-out property <string> jam-relay;
+    in property <string> jam-security;
+    in-out property <bool> jam-auto-advance: true;
+    in-out property <bool> jam-remember-matches: false;
+    in property <string> jam-skip-status;
+    in property <bool> jam-can-skip: false;
+    in property <[GroveJamTrack]> jam-member-rows;
+    in property <string> jam-invite-link;
     private property <bool> following-guest: root.jam-connected && !root.jam-host && root.jam-following;
     in property <bool> connected: false;
     in property <bool> authenticated: false;
@@ -159,6 +169,8 @@ export component GroveWindow inherits Window {
     callback jam-remove(string);
     callback jam-next;
     callback jam-pair(int);
+    callback jam-vote-skip;
+    callback jam-options-changed(string);
 
 
     // ── Shell (issue #41) ──
@@ -393,6 +405,18 @@ export component GroveWindow inherits Window {
                         jam-add => { root.jam-add(); }
                         jam-next => { root.jam-next(); }
                         jam-remove(a) => { root.jam-remove(a); }
+                        jam-internet <=> root.jam-internet;
+                        jam-relay <=> root.jam-relay;
+                        jam-security: root.jam-security;
+                        jam-auto-advance <=> root.jam-auto-advance;
+                        jam-remember-matches <=> root.jam-remember-matches;
+                        jam-skip-status: root.jam-skip-status;
+                        jam-can-skip: root.jam-can-skip;
+                        jam-member-rows: root.jam-member-rows;
+                        jam-invite-link: root.jam-invite-link;
+                        narrow: root.narrow;
+                        jam-vote-skip => { root.jam-vote-skip(); }
+                        jam-options-changed(a) => { root.jam-options-changed(a); }
                     }
                     if root.page == 3 : LibraryPage {
                         page <=> root.page;

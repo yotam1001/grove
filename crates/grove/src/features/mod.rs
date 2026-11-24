@@ -58,6 +58,14 @@ enum Pending {
     },
     /// Library tabs, search paging, follows, autoplay refills and batched lookups.
     Browse(browse::Want),
+    JamCollection {
+        invite: String,
+        group: String,
+        sender: tokio::sync::mpsc::UnboundedSender<crate::jam_transport::Request>,
+    },
+    JamIsrc {
+        uri: String,
+    },
 }
 pub struct Features {
     pub prefs: Preferences,
@@ -83,6 +91,7 @@ pub struct Features {
     jam_remote: String,
     jam_candidates: Vec<Track>,
     related: Vec<Track>,
+    jam: jam_match::JamState,
 }
 impl Features {
     pub fn install(ui: &GroveWindow, tx: RequestSender, offline: bool) -> Rc<RefCell<Self>> {
@@ -111,6 +120,7 @@ impl Features {
             jam_remote: String::new(),
             jam_candidates: vec![],
             related: vec![],
+            jam: Default::default(),
         }));
         jam_match::bind(ui, &this);
         navigation::bind(ui, &this);
@@ -220,7 +230,7 @@ impl Features {
         {
             return;
         }
-        if matches!(&pending,Pending::JamAdd{invite,..}|Pending::JamMatch{invite,..} if !ui.get_jam_connected() || invite!=ui.get_jam_invite().as_str())
+        if matches!(&pending,Pending::JamAdd{invite,..}|Pending::JamMatch{invite,..}|Pending::JamCollection{invite,..} if !ui.get_jam_connected() || invite!=ui.get_jam_invite().as_str())
         {
             return;
         }
@@ -242,7 +252,14 @@ impl Features {
             Err(e) => {
                 if let Pending::Browse(want) = pending {
                     self.browse_failed(ui, want, e);
-                } else if matches!(pending, Pending::JamAdd { .. } | Pending::JamMatch { .. }) {
+                } else if matches!(pending, Pending::JamIsrc { .. }) {
+                    self.jam.isrc_failed(&pending);
+                } else if matches!(
+                    pending,
+                    Pending::JamAdd { .. }
+                        | Pending::JamMatch { .. }
+                        | Pending::JamCollection { .. }
+                ) {
                     ui.set_jam_message(e.into());
                 } else if matches!(pending, Pending::Related(_)) {
                     self.related_failed(ui, &e);
@@ -265,6 +282,10 @@ impl Features {
                 invite,
                 sender,
             } => self.jam_track_resolved(ui, &data, uri, invite, sender),
+            Pending::JamCollection { group, sender, .. } => {
+                self.jam_collection_loaded(ui, &data, group, sender)
+            }
+            Pending::JamIsrc { uri } => self.jam.isrc_loaded(&data, uri),
             Pending::Page { append, .. } => self.page_loaded(ui, &data, append),
             Pending::Playlists => self.playlists_loaded(ui, &data),
             Pending::Mutation => self.mutation_confirmed(ui, &data),

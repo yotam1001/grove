@@ -21,6 +21,11 @@ $global:AppsEntry = $null
 $global:AppWrites = 0
 $global:FailAppWrite = 0
 $global:RaceNewAppEntry = $false
+# Jams: fake the per-user grove:// handler so tests never touch HKCU.
+$global:UrlHandler = $null
+function Get-GroveUrlHandlerCommand { return $global:UrlHandler }
+function Write-GroveUrlHandlerCommand { param($Command) $global:UrlHandler = $Command }
+function Remove-GroveUrlHandlerKey { $global:UrlHandler = $null }
 function Get-GroveUninstallEntry {
     if ($null -eq $global:AppsEntry) { return $null }
     $copy = @{}; foreach ($name in $global:AppsEntry.get_Keys()) { $copy[$name] = $global:AppsEntry[$name] }
@@ -96,6 +101,21 @@ function New-MockPlayer([string]$Path, [string]$Name = 'grove-music') {
     return $p
 }
 switch ($Scenario) {
+    'url-handler' {
+        # Install registers grove:// for this release; updates follow the new release;
+        # a foreign handler is preserved; uninstall removes only Grove's own entry.
+        New-Install; $first = Current-Release
+        if ($global:UrlHandler -ne ('"' + [IO.Path]::GetFullPath((Join-Path $first 'grove-music.exe')) + '" "%1"')) { throw 'grove:// handler not registered for the release' }
+        Install-Grove $package $root $links 'None' '' '1.2.3' | Out-Null
+        if (!$global:UrlHandler.Contains((Split-Path -Leaf (Current-Release)))) { throw 'grove:// handler did not follow the update' }
+        Uninstall-Grove $root $links | Out-Null
+        if ($null -ne $global:UrlHandler) { throw 'grove:// handler left after uninstall' }
+        $global:UrlHandler = '"C:\Other\app.exe" "%1"'
+        New-Install
+        if ($global:UrlHandler -ne '"C:\Other\app.exe" "%1"') { throw 'Foreign grove:// handler overwritten' }
+        Uninstall-Grove $root $links | Out-Null
+        if ($global:UrlHandler -ne '"C:\Other\app.exe" "%1"') { throw 'Foreign grove:// handler removed' }
+    }
     'multiple-player-update' {
         New-Install; $previous = Current-Release
         $first = New-MockPlayer (Join-Path $previous 'grove-music.exe')

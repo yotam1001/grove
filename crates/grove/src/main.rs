@@ -89,7 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let review = modes
         .ui
-        .map(|path| ui_review::start(&ui, path.into()))
+        .map(|path| ui_review::start_with(&ui, Some(state.clone()), path.into()))
         .transpose()?;
     let feature_review = modes
         .features

@@ -1,0 +1,20 @@
+name: Jam interop
+# Tide <-> Grove jam protocol drift warning. The pinned interop tests run in the
+# main CI job's workspace tests; this checks Tide's current main weekly.
+on:
+  pull_request:
+    paths: ["crates/jam/**", ".github/workflows/jam-interop.yml"]
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+jobs:
+  tide-main:
+    # Drift detector: fails when Tide's current jam protocol no longer matches.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: sed -i -E 's/(tide-jam-lab = \{ git = "[^"]+", )rev = "[0-9a-f]+"/\1branch = "main"/' crates/jam/Cargo.toml
+      - run: cargo test -p tide-jam --test tide_interop -- --skip pinned_tide_revision_is_recorded

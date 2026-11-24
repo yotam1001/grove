@@ -96,7 +96,7 @@ pub fn start(
             15=>{assert_eq!(ui.get_feature_tracks().row_count(),1);capture(&ui,&out,"session-history");features.borrow_mut().clear(&ui);assert_eq!(ui.get_feature_tracks().row_count(),0);assert_eq!(ui.get_local_queue().row_count(),0);assert!(features.borrow().pending.is_empty());},
             16=>{
                 ui.set_page(4);ui.set_jam_connected(true);ui.set_jam_host(false);ui.set_jam_invite("cross-room-a".into());ui.set_jam_following(true);ui.set_library_ready(true);
-                let remote=crate::jam::Playback{uri:"youtube:abcdefghijk".into(),title:"Forest floor".into(),artist:"Review artist".into(),position_ms:12000,playing:true,sampled_at_ms:crate::jam::unix_ms()};
+                let remote=crate::jam::Playback{uri:"youtube:abcdefghijk".into(),title:"Forest floor".into(),artist:"Review artist".into(),position_ms:12000,playing:true,sampled_at_ms:crate::jam::unix_ms(),..Default::default()};
                 assert!(features.borrow_mut().paired_host(&ui,&remote).is_none(),"Foreign song played without confirmation");let stale=features.borrow().serial;
                 let remote2=crate::jam::Playback{uri:"youtube:bcdefghijkl".into(),..remote};assert!(features.borrow_mut().paired_host(&ui,&remote2).is_none());let id=features.borrow().serial;
                 features.borrow_mut().response(&ui,stale,Ok(json!({"tracks":[track('d',"Wrong stale recording")]})));assert_eq!(ui.get_jam_matches().row_count(),0);
@@ -106,8 +106,33 @@ pub fn start(
                 ui.set_jam_sync_status("Following Tide · experimental cross-service room".into());
             },
             17=>{
-                capture(&ui,&out,"cross-service-match");features.borrow_mut().reset_jam(&ui);ui.set_jam_invite("cross-room-b".into());
-                let remote=crate::jam::Playback{uri:"youtube:bcdefghijkl".into(),title:"Forest floor".into(),artist:"Review artist".into(),position_ms:12000,playing:true,sampled_at_ms:crate::jam::unix_ms()};
+                capture(&ui,&out,"cross-service-match");features.borrow_mut().reset_jam(&ui);ui.set_jam_connected(true);ui.set_jam_invite("isrc-room".into());
+                // ISRC + duration auto-match, opt-in remembered choices, album entries, host ISRC lookup.
+                let isrc_track=|id:char,title:&str,ms:u64|{let mut t=track(id,title);t["duration_ms"]=json!(ms);t["external_ids"]=json!({"isrc":"USRC17607839"});t};
+                let remote=crate::jam::Playback{uri:"youtube:cdefghijklm".into(),title:"Artist - Forest floor (Official Video)".into(),position_ms:1000,playing:true,sampled_at_ms:crate::jam::unix_ms(),duration_ms:211_000,isrc:"USRC17607839".into(),..Default::default()};
+                assert!(features.borrow_mut().paired_host(&ui,&remote).is_none());let id=features.borrow().serial;
+                features.borrow_mut().response(&ui,id,Ok(json!({"tracks":[isrc_track('e',"Forest floor · live",260_000),isrc_track('f',"Forest floor",210_000)]})));
+                assert!(ui.get_jam_match_confirmed()&&ui.get_jam_message().contains("ISRC"),"Exact ISRC with agreeing duration should confirm itself");
+                assert_eq!(features.borrow_mut().paired_host(&ui,&remote),Some("spotify:track:ffffffffffffffffffffff".into()));
+                features.borrow_mut().set_remember_jam(&ui,true);ui.invoke_jam_pair(0);
+                features.borrow_mut().reset_jam(&ui);ui.set_jam_invite("next-room".into());
+                assert!(features.borrow_mut().paired_host(&ui,&remote).is_some(),"Opted-in choices carry over to the next room");
+                features.borrow_mut().set_remember_jam(&ui,false);features.borrow_mut().reset_jam(&ui);ui.set_jam_invite("third-room".into());
+                assert!(features.borrow_mut().paired_host(&ui,&remote).is_none(),"Opting out forgets saved choices");assert!(features.borrow().prefs.jam_matches.is_empty());
+                let(sender,mut receiver)=tokio::sync::mpsc::unbounded_channel();
+                features.borrow_mut().resolve_jam_collection(&ui,"spotify:album:aaaaaaaaaaaaaaaaaaaaaa".into(),sender);let id=features.borrow().serial;
+                features.borrow_mut().response(&ui,id,Ok(json!({"kind":"collection_page","items":[track('a',"One"),{"track":track('b',"Two")},{"item":null}],"has_more":false})));
+                assert!(matches!(receiver.try_recv(),Ok(crate::jam_transport::Request::AddItems{group,items}) if group=="From an album"&&items.len()==2));
+                // Song menus on collection (10) and artist (11) pages feed the shared queue in a jam.
+                let(jam_sender,mut jam_rx)=tokio::sync::mpsc::unbounded_channel();features.borrow_mut().set_jam_sender(jam_sender);
+                ui.set_jam_tide_host(false);for page in [10,11]{ui.set_page(page);features.borrow_mut().add_song_to_jam(&ui,"spotify:track:aaaaaaaaaaaaaaaaaaaaaa",Some("Menu pick"));assert!(matches!(jam_rx.try_recv(),Ok(crate::jam_transport::Request::Add{title,..}) if title=="Menu pick"));}
+                ui.set_page(4);
+                ui.set_library_ready(true);assert_eq!(features.borrow_mut().host_isrc(&ui,"spotify:track:ffffffffffffffffffffff"),(String::new(),0));let id=features.borrow().serial;
+                features.borrow_mut().response(&ui,id,Ok(json!({"track":isrc_track('f',"Forest floor",210_000)})));
+                assert_eq!(features.borrow_mut().host_isrc(&ui,"spotify:track:ffffffffffffffffffffff"),("USRC17607839".into(),210_000));
+                capture(&ui,&out,"isrc-match");
+                features.borrow_mut().reset_jam(&ui);ui.set_jam_invite("cross-room-b".into());
+                let remote=crate::jam::Playback{uri:"youtube:bcdefghijkl".into(),title:"Forest floor".into(),artist:"Review artist".into(),position_ms:12000,playing:true,sampled_at_ms:crate::jam::unix_ms(),..Default::default()};
                 assert!(features.borrow_mut().paired_host(&ui,&remote).is_none(),"Recording choice leaked across rooms");let id=features.borrow().serial;
                 ui.set_jam_connected(false);features.borrow_mut().response(&ui,id,Ok(json!({"tracks":[track('d',"Late response")]})));assert_eq!(ui.get_jam_matches().row_count(),0);
                 features.borrow_mut().clear(&ui);
