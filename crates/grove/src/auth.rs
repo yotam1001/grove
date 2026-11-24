@@ -21,6 +21,9 @@ pub const WEB_SCOPES: &[&str] = &[
     "playlist-modify-private",
     "playlist-modify-public",
     "user-top-read",
+    "user-read-recently-played",
+    "user-follow-read",
+    "user-follow-modify",
     "user-read-playback-state",
     "user-modify-playback-state",
 ];
