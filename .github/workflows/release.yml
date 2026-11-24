@@ -1,0 +1,100 @@
+name: Release
+# Push a tag such as v0.1.0-beta.2 (matching crates/grove/Cargo.toml) to build,
+# review, package and publish a GitHub release. Tags with a pre-release suffix
+# become pre-releases. Releases are not code-signed yet.
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Tag matches the Grove version
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path crates/grove/Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
+          if ("v$version" -ne $env:GITHUB_REF_NAME) { throw "Tag $env:GITHUB_REF_NAME does not match Grove $version" }
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - run: python scripts/check_public_files.py
+      - run: python scripts/sync_shared_crates.py check
+      - run: cargo test --locked --workspace
+      - name: Build the optimized executable with public path remapping
+        shell: pwsh
+        run: |
+          # Remap the checkout and the Cargo registry so no runner paths reach the binary.
+          $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $HOME '.cargo' }
+          $env:CARGO_ENCODED_RUSTFLAGS = '--remap-path-prefix=' + $PWD + '=/workspace' + [char]31 + '--remap-path-prefix=' + $cargoHome + '=/cargo'
+          cargo build --release --locked --package grove-music
+          if ($LASTEXITCODE -ne 0) { throw 'Release build failed' }
+      - name: Offline review modes on the release executable
+        shell: pwsh
+        run: |
+          $exe = 'target/release/grove-music.exe'
+          foreach ($mode in @('--smoke-ui', '--review-features', '--review-ui')) {
+            $out = Join-Path 'review' $mode.TrimStart('-')
+            $run = Start-Process -FilePath $exe -ArgumentList @($mode, $out) -Wait -PassThru
+            if ($run.ExitCode -ne 0) { throw "$mode exited with $($run.ExitCode)" }
+          }
+      - name: Dependency notices
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force .local | Out-Null
+          cargo metadata --locked --filter-platform x86_64-pc-windows-msvc --format-version 1 | Set-Content .local/metadata.json -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'Cargo metadata failed' }
+          python scripts/generate-dependency-notices.py .local/metadata.json .local/DEPENDENCIES.md
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency notices failed' }
+      - name: Package, build the installer and write the update manifest
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $zip = Join-Path $PWD "dist/Grove-$env:VERSION-windows-x64.zip"
+          $setup = Join-Path $PWD "dist/GroveSetup-$env:VERSION.exe"
+          python scripts/package-grove-beta.py --executable target/release/grove-music.exe --notices .local/DEPENDENCIES.md --destination "dist/Grove-$env:VERSION-windows-x64"
+          if ($LASTEXITCODE -ne 0) { throw 'Packaging failed' }
+          ./scripts/build-grove-installer.ps1 -Package $zip -Destination $setup
+          ./scripts/write-update-manifest.ps1 -Installer $setup -Version $env:VERSION -Destination (Join-Path $PWD 'dist/GroveUpdate.json')
+          $check = Start-Process -FilePath target/release/grove-music.exe -ArgumentList @('--verify-update', 'dist/GroveUpdate.json', $setup) -Wait -PassThru
+          if ($check.ExitCode -ne 0) { throw 'The update manifest does not verify against the installer' }
+          $sums = foreach ($file in @($zip, $setup, 'dist/GroveUpdate.json')) {
+            (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() + '  ' + (Split-Path -Leaf $file)
+          }
+          [IO.File]::WriteAllText((Join-Path $PWD 'dist/SHA256SUMS.txt'), ($sums -join "`n") + "`n")
+          Get-Content dist/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: grove-release-${{ steps.version.outputs.version }}
+          path: |
+            dist/*.zip
+            dist/*.exe
+            dist/GroveUpdate.json
+            dist/SHA256SUMS.txt
+            review/
+          if-no-files-found: error
+      - name: Publish the GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $assets = @("dist/Grove-$env:VERSION-windows-x64.zip", "dist/GroveSetup-$env:VERSION.exe", 'dist/GroveUpdate.json', 'dist/SHA256SUMS.txt')
+          $notes = "Grove $env:VERSION for Windows 10/11 x64.`n`nGroveSetup installs per user; the ZIP is portable. Check downloads against SHA256SUMS.txt. Releases are not code-signed yet, so Windows SmartScreen may warn."
+          $flags = @('--title', "Grove $env:VERSION", '--notes', $notes, '--verify-tag')
+          if ($env:VERSION.Contains('-')) { $flags += '--prerelease' }
+          gh release view $env:GITHUB_REF_NAME *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:GITHUB_REF_NAME @assets --clobber
+          } else {
+            gh release create $env:GITHUB_REF_NAME @assets @flags
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Publishing the release failed' }

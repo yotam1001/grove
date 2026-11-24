@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$Package, [Parameter(Mandatory)][string]$Destination)
+param([Parameter(Mandatory)][string]$Package, [Parameter(Mandatory)][string]$Destination, [string]$Executable = '')
 $ErrorActionPreference = 'Stop'
 $taskRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 . (Join-Path $PSScriptRoot 'grove-install-common.ps1')
@@ -18,7 +18,8 @@ $taskDigest = $taskStage + '.payload-sha256'
 $taskIcon = $taskStage + '.ico'
 if ((Test-Path -LiteralPath $taskDigest) -or (Test-Path -LiteralPath $taskIcon)) { throw 'Setup staging path exists.' }
 [IO.File]::WriteAllText($taskDigest, (Get-FileHash -LiteralPath $taskPackage -Algorithm SHA256).Hash.ToLowerInvariant(), [Text.UTF8Encoding]::new($false))
-$taskExport = Start-Process -FilePath (Join-Path $taskRoot 'target/release/grove-music.exe') -ArgumentList @('--export-icon', ('"' + $taskIcon + '"')) -WindowStyle Hidden -Wait -PassThru
+if (!$Executable) { $Executable = Join-Path $taskRoot 'target/release/grove-music.exe' }
+$taskExport = Start-Process -FilePath ([IO.Path]::GetFullPath($Executable)) -ArgumentList @('--export-icon', ('"' + $taskIcon + '"')) -WindowStyle Hidden -Wait -PassThru
 if ($taskExport.ExitCode -ne 0 -or !(Test-Path -LiteralPath $taskIcon)) { throw 'Could not export Grove icon.' }
 try {
     & $taskCompiler /nologo /target:winexe /platform:x64 /optimize+ /debug- /warnaserror+ `

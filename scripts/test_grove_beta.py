@@ -3,8 +3,6 @@ import hashlib
 import importlib.util
 import os
 from pathlib import Path
-import re
-import shutil
 import subprocess
 import tempfile
 import unittest
@@ -17,11 +15,9 @@ def load(name, path):
     spec.loader.exec_module(module)
     return module
 gate = load("grove_package", ROOT / "scripts/package-grove-beta.py")
-original = load("tide_install_tests", ROOT / "scripts/test_windows_install.py")
-HARNESS = original.HARNESS.replace("TIDE", "GROVE").replace("Tide", "Grove").replace("tide", "grove")
-HARNESS = HARNESS.replace("org.grovemusic.windows.preview", "org.grovemusic.windows.beta").replace("0.1.0-preview", "0.1.0-beta.1")
-HARNESS = HARNESS.replace("Install-Grove $package $root $links 'Chrome' ('a' * 32)", "Install-Grove $package $root $links 'None' ''")
-HARNESS = re.sub(r" -or \$global:Registry\['Chrome'\] -ne \$(?:release|previous|current)", "", HARNESS)
+# The PowerShell lifecycle harness is Grove-owned (ported from Tide) and runs
+# against scripts/grove-install-common.ps1 with faked registry and shortcuts.
+HARNESS = (ROOT / "scripts/grove_install_harness.ps1").read_text(encoding="utf-8")
 
 class PackageTests(unittest.TestCase):
     def fixture(self, path, extra=None, corrupt=False):
@@ -44,10 +40,13 @@ class PackageTests(unittest.TestCase):
 class InstallerTests(unittest.TestCase):
     def test_isolated_lifecycle(self):
         scenarios = ["fresh-remove","upgrade","preserve-extra","dependency-failure-first","dependency-failure-update","shortcut-failure","busy","unknown-root","shortcut-conflict","changed-shortcut-removal","corrupt-package","traversal-record","lock","download","archive-paths","app-entry-write-failure-first","app-entry-write-failure-update","app-entry-marker-failure","app-entry-version-update","app-entry-migration","app-entry-new-race","protocol"]
-        shell=shutil.which("pwsh") or "powershell.exe"
+        # Grove Setup and "Uninstall Grove.cmd" run these scripts with the built-in
+        # Windows PowerShell 5.1, so the lifecycle is tested with that shell too.
+        shell=os.path.join(os.environ["SystemRoot"],"System32","WindowsPowerShell","v1.0","powershell.exe")
         for scenario in scenarios:
             with self.subTest(scenario=scenario), tempfile.TemporaryDirectory(prefix="grove-install-test-") as temp:
-                fixture=Path(temp);package=fixture/"package";lines=[]
+                # Resolve to the long path: CI runners use an 8.3 temp name (RUNNER~1).
+                fixture=Path(temp).resolve();package=fixture/"package";lines=[]
                 for name in gate.FILES:
                     path=package/name;path.parent.mkdir(parents=True,exist_ok=True)
                     data=b"public fixture, never executed";path.write_bytes(data)
@@ -58,7 +57,11 @@ class InstallerTests(unittest.TestCase):
                         with zipfile.ZipFile(fixture/(name+".zip"),"w") as archive:
                             for entry in entries: archive.writestr(entry,b"fixture")
                 script=fixture/"test.ps1";script.write_text(HARNESS,encoding="utf-8-sig")
-                result=subprocess.run([shell,"-NoProfile","-File",str(script),str(ROOT/"scripts/grove-install-common.ps1"),str(fixture),scenario],capture_output=True,timeout=30)
+                # A PowerShell 7 parent (the CI step shell) exports its own module
+                # path; give the built-in 5.1 subprocess its normal OS modules (as Tide does).
+                environment=os.environ.copy()
+                environment["PSModulePath"]=str(Path(os.environ["SystemRoot"])/"System32/WindowsPowerShell/v1.0/Modules")
+                result=subprocess.run([shell,"-NoProfile","-File",str(script),str(ROOT/"scripts/grove-install-common.ps1"),str(fixture),scenario],capture_output=True,timeout=30,env=environment)
                 self.assertEqual(result.returncode,0,result.stderr.decode(errors="replace"))
                 self.assertIn(b"PASS isolated installer lifecycle",result.stdout)
     def test_bootstrap_payload_gate(self):

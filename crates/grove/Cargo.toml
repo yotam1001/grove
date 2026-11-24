@@ -27,6 +27,8 @@ tide-core = { path = "../core" }
 tide-jam = { path = "../jam" }
 tide-playback = { path = "../playback" }
 rfd = "0.17.2"
+semver = "1"
+sha2 = "0.10"
 
 [build-dependencies]
 slint-build = "=1.18.1"

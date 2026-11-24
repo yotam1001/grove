@@ -1,0 +1,26 @@
+# Template: waiting on signed releases. See README.md before submitting.
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
+PackageIdentifier: yotam1001.Grove
+PackageVersion: "{{VERSION}}"
+PackageLocale: en-US
+Publisher: yotam1001
+PublisherUrl: https://github.com/yotam1001
+PublisherSupportUrl: https://github.com/yotam1001/grove/issues
+PackageName: Grove
+PackageUrl: https://github.com/yotam1001/grove
+License: MIT
+LicenseUrl: https://github.com/yotam1001/grove/blob/main/LICENSE
+ShortDescription: A lightweight, native Spotify player for Windows.
+Description: >-
+  Grove is an unofficial, open-source Spotify player written in Rust and Slint.
+  It plays Spotify (Premium) in-process with librespot, plays local audio files,
+  and can share nearby listening rooms with Tide. Not affiliated with Spotify.
+Moniker: grove
+Tags:
+  - spotify
+  - music
+  - player
+  - rust
+ReleaseNotesUrl: https://github.com/yotam1001/grove/releases/tag/v{{VERSION}}
+ManifestType: defaultLocale
+ManifestVersion: 1.9.0

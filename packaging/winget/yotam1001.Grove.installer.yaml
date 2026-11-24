@@ -1,0 +1,18 @@
+# Template: waiting on signed releases. See README.md before submitting.
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.9.0.schema.json
+PackageIdentifier: yotam1001.Grove
+PackageVersion: "{{VERSION}}"
+MinimumOSVersion: 10.0.17763.0
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+  - RelativeFilePath: grove-music.exe
+    PortableCommandAlias: grove
+Scope: user
+ReleaseDate: "{{RELEASE_DATE}}"
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/yotam1001/grove/releases/download/v{{VERSION}}/Grove-{{VERSION}}-windows-x64.zip
+    InstallerSha256: "{{ZIP_SHA256}}"
+ManifestType: installer
+ManifestVersion: 1.9.0

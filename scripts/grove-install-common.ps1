@@ -146,7 +146,9 @@ function Get-GroveChild([string]$Root, [string]$Relative) {
         throw 'Invalid installation-relative path.'
     }
     $result = [IO.Path]::GetFullPath((Join-Path $Root $Relative))
-    if (!$result.StartsWith($Root.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Path escapes installation.' }
+    # Normalize the root the same way: Windows PowerShell expands 8.3 short names (RUNNER~1) in GetFullPath.
+    $base = [IO.Path]::GetFullPath($Root).TrimEnd('\') + '\'
+    if (!$result.StartsWith($base, [StringComparison]::OrdinalIgnoreCase)) { throw 'Path escapes installation.' }
     Assert-GrovePlainPath $result
     return $result
 }

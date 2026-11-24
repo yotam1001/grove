@@ -6,13 +6,19 @@ import subprocess
 import zipfile
 from pathlib import Path
 from check_public_files import PATTERNS
-import importlib.util
 
 ROOT = Path(__file__).resolve().parent.parent
-spec = importlib.util.spec_from_file_location("preview_check", ROOT / "scripts/check-preview-package.py")
-preview_check = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(preview_check)
-BINARY_PATTERNS = preview_check.BINARY_PATTERNS
+
+# Executables concatenate static strings and arbitrary binary bytes. Keep the
+# credential patterns but stop them from consuming bytes after a literal
+# (ported from Tide's scripts/check-preview-package.py).
+BINARY_PATTERNS = [
+    (label, re.compile(rb"(?<![A-Za-z0-9_-])sk-[A-Za-z0-9_-]{20,}")
+     if label == "API credential" else
+     re.compile(rb"(?:SAPISID|__Secure-3PAPISID)=[\x21-\x3a\x3c-\x7e]{10,}")
+     if label == "Google session cookie" else pattern)
+    for label, pattern in PATTERNS
+]
 FILES = {
     "grove-music.exe": None,
     "LICENSE": "LICENSE",
@@ -52,7 +58,8 @@ def package(exe, notices, destination):
     for parent in [output, *output.parents]:
         if parent.is_symlink() or (parent.exists() and parent.stat().st_file_attributes & 0x400): raise ValueError("Output must not use links or junctions")
     version = subprocess.run([str(exe.resolve()), "--version"], capture_output=True, check=True, timeout=10).stdout.decode().strip()
-    if version != "Grove 0.1.0-beta.1": raise ValueError("Expected the Grove beta executable")
+    expected = re.search(r'^version = "([^"]+)"', (ROOT / "crates/grove/Cargo.toml").read_text(encoding="utf-8"), re.M)[1]
+    if version != "Grove " + expected: raise ValueError(f"Expected the Grove {expected} executable")
     sources = {name: (exe if name == "grove-music.exe" else notices if name == "DEPENDENCIES.md" else ROOT / source) for name, source in FILES.items()}
     payload = {}
     for name, source in sources.items():

@@ -1,5 +1,11 @@
 # tide-playback
 
+> **Grove build note.** The YouTube-specific parts below (yt-dlp, `prepare_next`
+> stream preparation and cookie leases) are compiled only with the `youtube`
+> cargo feature, which Grove leaves off. Without it YouTube addresses are
+> rejected, mpv runs with `--ytdl=no` and `src/youtube_off.rs` supplies inert
+> stand-ins, so only local files and plain http/https sources play.
+
 `tide-playback` implements the `tide-core` playback contract with a Windows
 mpv sidecar controlled through JSON IPC over a named pipe. The worker is
 created by `start()`, while `mpv.exe` is launched only when the first track is

@@ -1,7 +1,12 @@
-// Settings (page 8): appearance, playback, history and support.
+// Settings (page 8): grouped cards for appearance, playback, shortcuts,
+// listening, updates and help. Another area adds its own card component from
+// ui/pages/settings_<area>.slint (built on SettingsCard) and mounts it here
+// with one line in the list below.
 import { AboutSlint } from "std-widgets.slint";
-import { GroveButton, GroveSwitch, Rule } from "../components.slint";
+import { GroveButton } from "../components.slint";
 import { GroveTheme } from "../theme.slint";
+import { GroveSystem } from "../system.slint";
+import { SettingsCard, SettingRow, SettingSwitch, SegmentedChoice, ShortcutRow, SettingStatus } from "../settings_components.slint";
 
 export component SettingsPage inherits VerticalLayout {
     in property <bool> light-mode;
@@ -18,38 +23,137 @@ export component SettingsPage inherits VerticalLayout {
     callback open-local;
     callback stop-local;
     callback save-support;
-    spacing: 18px; vertical-stretch: 0;
-    Text { text: "Make Grove yours"; color: GroveTheme.text; font-size: 23px; font-weight: 600; }
-    HorizontalLayout {
-        spacing: 12px; alignment: start;
-        GroveButton { text: root.light-mode ? "Light theme" : "Dark theme"; width: 140px; clicked => { root.appearance("theme"); } }
-        GroveButton { text: root.compact-mode ? "Compact layout" : "Full layout"; width: 150px; clicked => { root.appearance("compact"); } }
+    spacing: 16px; vertical-stretch: 0;
+    max-width: 880px;
+
+    SettingsCard {
+        title: "Appearance";
+        subtitle: "How Grove looks on this PC.";
+        SettingRow {
+            separator: false;
+            text: "Theme";
+            note: GroveSystem.follow-system ? "Following your Windows app colour setting." : "Choose System to follow Windows light and dark mode.";
+            controls-width: 250px;
+            SegmentedChoice {
+                width: 250px; label: "Theme";
+                options: GroveSystem.system-theme-supported ? ["Dark", "Light", "System"] : ["Dark", "Light"];
+                selected: GroveSystem.follow-system ? 2 : root.light-mode ? 1 : 0;
+                chosen(index) => { root.appearance(index == 0 ? "theme-dark" : index == 1 ? "theme-light" : "theme-system"); }
+            }
+        }
+        SettingRow {
+            text: "Layout";
+            note: "Compact uses a smaller window and tighter spacing.";
+            controls-width: 180px;
+            SegmentedChoice {
+                width: 180px; label: "Layout";
+                options: ["Full", "Compact"];
+                selected: root.compact-mode ? 1 : 0;
+                chosen(index) => { if (index == 1) != root.compact-mode { root.appearance("compact"); } }
+            }
+        }
     }
-    Rule {}
-    Text { text: "Playback"; color: GroveTheme.text; font-size: 20px; font-weight: 600; }
-    HorizontalLayout {
-        alignment: start; spacing: 10px;
-        GroveButton { text: "Open audio file"; width: 150px; enabled: !root.jam-connected; clicked => { root.open-local(); } }
-        if root.local-active : GroveButton { text: "Return to Spotify"; width: 160px; clicked => { root.stop-local(); } }
+
+    SettingsCard {
+        title: "Playback";
+        subtitle: "Spotify streams through Grove; local files use mpv.";
+        SettingRow {
+            separator: false;
+            text: root.local-active ? "Playing a local file" : "Local audio files";
+            note: root.jam-connected ? "Leave the shared jam to open a local file." : "Play a file from this PC without signing in to Spotify.";
+            controls-width: 160px;
+            if !root.local-active : GroveButton { text: "Open audio file"; width: 150px; enabled: !root.jam-connected; clicked => { root.open-local(); } }
+            if root.local-active : GroveButton { text: "Return to Spotify"; width: 160px; clicked => { root.stop-local(); } }
+        }
+        SettingSwitch { text: "Use media keys"; note: "Control Grove from your keyboard's media keys and Windows media controls while other apps are open."; checked: root.media-keys; toggled => { root.appearance("media"); } }
+        SettingSwitch { text: "Keep music playing"; note: "Continue with songs from Home when your queue ends."; checked: root.autoplay; toggled => { root.appearance("autoplay"); } }
+        SettingSwitch {
+            text: "Keep playing in the tray";
+            note: GroveSystem.tray-supported ? "Closing the window hides Grove to the notification area. Right-click its tray icon for Play/pause, Next, Show and Quit." : "Available in the Windows app.";
+            enabled: GroveSystem.tray-supported;
+            checked: GroveSystem.close-to-tray;
+            toggled => { GroveSystem.toggle("tray"); }
+        }
     }
-    GroveSwitch { text: "Use media keys"; checked: root.media-keys; toggled => { root.appearance("media"); } }
-    Text { text: "Control Grove while other apps are open."; color: GroveTheme.muted; wrap: word-wrap; }
-    GroveSwitch { text: "Keep music playing"; checked: root.autoplay; toggled => { root.appearance("autoplay"); } }
-    Text { text: "Continue with songs from Home when your queue ends."; color: GroveTheme.muted; wrap: word-wrap; }
-    Rule {}
-    Text { text: "Listening preferences"; color: GroveTheme.text; font-size: 20px; font-weight: 600; }
-    GroveSwitch { text: "Remember songs this session"; checked: root.local-history; toggled => { root.appearance("history"); } }
-    Text { text: "Keep a history of the Spotify songs you listen to. It clears when you close Grove."; color: GroveTheme.muted; wrap: word-wrap; }
-    HorizontalLayout {
-        spacing: 10px; alignment: start;
-        GroveButton { text: "View history"; width: 110px; clicked => { root.page = 9; } }
-        GroveButton { text: "Clear history"; width: 110px; clicked => { root.appearance("clear-history"); } }
-        GroveButton { text: "Show hidden songs"; width: 164px; clicked => { root.appearance("reset-hidden"); } }
+
+    SettingsCard {
+        title: "Keyboard shortcuts";
+        subtitle: "Select a shortcut, then press Ctrl or Alt with a letter, number, Space or F-key. Esc cancels. These work while other apps have focus. Inside Grove, Space plays or pauses and ← / → seek 10 seconds when you're not typing.";
+        ShortcutRow {
+            separator: false; action: "Play / pause"; binding: GroveSystem.shortcut-toggle; enabled: GroveSystem.shortcuts-supported;
+            recording: GroveSystem.shortcut-recording-index == 0;
+            record => { GroveSystem.begin-shortcut(0); } clear => { GroveSystem.clear-shortcut(0); } cancel => { GroveSystem.cancel-shortcut(); }
+            captured(t, c, a, s, m) => { GroveSystem.record-shortcut(t, c, a, s, m); }
+        }
+        ShortcutRow {
+            action: "Next song"; binding: GroveSystem.shortcut-next; enabled: GroveSystem.shortcuts-supported;
+            recording: GroveSystem.shortcut-recording-index == 1;
+            record => { GroveSystem.begin-shortcut(1); } clear => { GroveSystem.clear-shortcut(1); } cancel => { GroveSystem.cancel-shortcut(); }
+            captured(t, c, a, s, m) => { GroveSystem.record-shortcut(t, c, a, s, m); }
+        }
+        ShortcutRow {
+            action: "Previous song"; binding: GroveSystem.shortcut-previous; enabled: GroveSystem.shortcuts-supported;
+            recording: GroveSystem.shortcut-recording-index == 2;
+            record => { GroveSystem.begin-shortcut(2); } clear => { GroveSystem.clear-shortcut(2); } cancel => { GroveSystem.cancel-shortcut(); }
+            captured(t, c, a, s, m) => { GroveSystem.record-shortcut(t, c, a, s, m); }
+        }
+        SettingStatus { text: GroveSystem.shortcut-status; attention: GroveSystem.shortcut-status != "" && GroveSystem.shortcut-status != "Saved"; }
     }
-    Rule {}
-    Text { text: root.app-version; color: GroveTheme.muted; font-size: 12px; }
-    Text { text: "Shared jams are experimental. For help, save support info and send it with a description of the problem."; color: GroveTheme.muted; wrap: word-wrap; }
-    GroveButton { text: "Save support info"; width: 160px; clicked => { root.save-support(); } }
-    GroveButton { text: "About"; width: 100px; clicked => { root.show-about = !root.show-about; } }
-    if root.show-about : AboutSlint { height: 112px; horizontal-stretch: 0; }
+
+    SettingsCard {
+        title: "Listening history";
+        subtitle: "Stays on this PC and clears when you close Grove.";
+        SettingSwitch { separator: false; text: "Remember songs this session"; note: "Keep a history of the Spotify songs you listen to."; checked: root.local-history; toggled => { root.appearance("history"); } }
+        SettingRow {
+            text: "History and hidden songs";
+            note: "Review or clear this session, or bring back songs you hid.";
+            controls-width: 268px;
+            GroveButton { text: "View"; width: 70px; clicked => { root.page = 9; } }
+            GroveButton { text: "Clear"; width: 70px; clicked => { root.appearance("clear-history"); } }
+            GroveButton { text: "Show hidden"; width: 112px; clicked => { root.appearance("reset-hidden"); } }
+        }
+    }
+
+    // Other Settings areas mount here, one line each, e.g. `SettingsAudio { }`.
+
+    SettingsCard {
+        title: "Updates";
+        subtitle: root.app-version;
+        SettingRow {
+            separator: false;
+            text: GroveSystem.update-state == 3 ? "Grove " + GroveSystem.update-version + " is available"
+                : GroveSystem.update-state == 4 ? "Downloading Grove " + GroveSystem.update-version
+                : GroveSystem.update-state == 5 ? "Grove " + GroveSystem.update-version + " is ready to install"
+                : "Check for a new version";
+            note: "Downloads come only from Grove's GitHub releases and are checked against their published SHA-256 before installing. Releases are not code-signed yet.";
+            controls-width: 170px;
+            if GroveSystem.update-state != 3 && GroveSystem.update-state != 5 : GroveButton {
+                text: GroveSystem.update-state == 1 ? "Checking…" : GroveSystem.update-state == 4 ? "Downloading…" : "Check for updates";
+                width: 160px; enabled: GroveSystem.update-state != 1 && GroveSystem.update-state != 4;
+                clicked => { GroveSystem.check-updates(); }
+            }
+            if GroveSystem.update-state == 3 : GroveButton { text: "Download"; accent: true; width: 120px; clicked => { GroveSystem.download-update(); } }
+            if GroveSystem.update-state == 5 : GroveButton { text: "Restart to update"; accent: true; width: 160px; clicked => { GroveSystem.install-update(); } }
+        }
+        SettingStatus { text: GroveSystem.update-status; attention: GroveSystem.update-state == 6; }
+    }
+
+    SettingsCard {
+        title: "Help";
+        subtitle: "Shared jams are experimental. For help, save support info and send it with a description of the problem.";
+        SettingRow {
+            separator: false;
+            text: "Support info";
+            note: "Fixed fields only: no account details, tokens, song names or file paths.";
+            controls-width: 160px;
+            GroveButton { text: "Save support info"; width: 160px; clicked => { root.save-support(); } }
+        }
+        SettingRow {
+            text: "About Grove";
+            note: "Open-source licences and the Slint UI toolkit.";
+            controls-width: 100px;
+            GroveButton { text: root.show-about ? "Hide" : "About"; width: 100px; clicked => { root.show-about = !root.show-about; } }
+        }
+        if root.show-about : HorizontalLayout { padding-left: 18px; padding-right: 18px; padding-bottom: 8px; alignment: start; AboutSlint { height: 112px; horizontal-stretch: 0; } }
+    }
 }

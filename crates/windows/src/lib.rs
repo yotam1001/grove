@@ -6,6 +6,12 @@
 //! as the only media-key handler: disable media keys in the playback backend
 //! rather than also registering a keyboard hook or global media hotkeys.
 
+#[cfg(windows)]
+mod audio_output;
+pub mod shortcuts;
+#[cfg(windows)]
+pub use audio_output::OutputWatcher;
+
 use std::ffi::c_void;
 
 /// Open a web page with Windows' registered default browser, without a shell
@@ -39,21 +45,39 @@ pub fn open_web_page(url: &str) -> Result<(), String> {
     }
 }
 
+/// Open Settings → Bluetooth & devices → Touchpad, where Windows 11 maps
+/// three- and four-finger swipes to Previous/Next track ("Change audio and
+/// volume"). Tide receives those as media keys. Fixed URI, never caller input.
+#[cfg(windows)]
+pub fn open_touchpad_settings() -> Result<(), String> {
+    use windows::core::w;
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            w!("open"),
+            w!("ms-settings:devices-touchpad"),
+            windows::core::PCWSTR::null(),
+            windows::core::PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if result.0 as isize <= 32 {
+        Err("Could not open touchpad settings".into())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(windows))]
+pub fn open_touchpad_settings() -> Result<(), String> {
+    Err("Touchpad settings are available on Windows".into())
+}
+
 #[cfg(not(windows))]
 pub fn open_web_page(_url: &str) -> Result<(), String> {
     Err("Browser integration is currently available on Windows".into())
-}
-
-/// The local wall-clock hour (0-23), used for the Home greeting.
-#[cfg(windows)]
-pub fn local_hour() -> Option<u8> {
-    let time = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
-    u8::try_from(time.wHour).ok().filter(|hour| *hour < 24)
-}
-
-#[cfg(not(windows))]
-pub fn local_hour() -> Option<u8> {
-    None
 }
 
 /// Current monitor work area, excluding the taskbar. Defer fitting while minimized.
@@ -133,6 +157,7 @@ pub enum MediaAction {
     Next,
     Previous,
     Stop,
+    ShowMini,
     /// Absolute playback position in seconds.
     Seek(f64),
 }
@@ -140,7 +165,52 @@ pub enum MediaAction {
 #[cfg(windows)]
 mod native;
 #[cfg(windows)]
+mod taskbar;
+#[cfg(windows)]
 pub use native::MediaSession;
+
+#[cfg(windows)]
+pub fn app_light_theme() -> Option<bool> {
+    taskbar::app_light_theme()
+}
+
+/// Read Windows Accessibility's animation preference once at startup.
+/// The local wall-clock hour (0-23), used for the Home greeting.
+#[cfg(windows)]
+pub fn local_hour() -> Option<u8> {
+    let time = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
+    u8::try_from(time.wHour).ok().filter(|hour| *hour < 24)
+}
+
+#[cfg(not(windows))]
+pub fn local_hour() -> Option<u8> {
+    None
+}
+
+pub fn client_animations_enabled() -> bool {
+    #[cfg(windows)]
+    {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SystemParametersInfoW, SPI_GETCLIENTAREAANIMATION, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+        };
+        let mut enabled = windows::core::BOOL::default();
+        // SPI_GETCLIENTAREAANIMATION writes one Win32 BOOL to this pointer.
+        unsafe {
+            SystemParametersInfoW(
+                SPI_GETCLIENTAREAANIMATION,
+                0,
+                Some((&mut enabled as *mut windows::core::BOOL).cast()),
+                SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+            )
+        }
+        .is_ok()
+            && enabled.as_bool()
+    }
+    #[cfg(not(windows))]
+    {
+        true
+    }
+}
 
 #[cfg(windows)]
 pub fn start(
@@ -163,6 +233,10 @@ pub fn start(
 
 #[cfg(not(windows))]
 impl MediaSession {
+    pub fn set_thumbnail(&mut self, _png: Option<&[u8]>) -> Result<(), String> {
+        Err("System artwork is currently supported on Windows only.".into())
+    }
+
     pub fn update(
         &mut self,
         _title: &str,
@@ -173,5 +247,28 @@ impl MediaSession {
         _duration: f64,
     ) -> Result<(), String> {
         Err("System media controls are currently supported on Windows only.".into())
+    }
+}
+
+#[cfg(windows)]
+pub mod discord_pipe;
+#[cfg(all(windows, feature = "native-login"))]
+pub mod login;
+pub mod mini;
+
+/// Reveal a file using the platform file manager.
+pub fn reveal_in_file_manager(path: &std::path::Path) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        std::process::Command::new("explorer.exe")
+            .arg(format!("/select,{}", path.display()))
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        Err("File manager integration is available on Windows only".into())
     }
 }

@@ -4,6 +4,15 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# Tide's YouTube path: yt-dlp through mpv, next-song stream preparation and
+# signed-in cookie copies. Grove plays only local files, so it stays off.
+youtube = []
+
+[[example]]
+name = "transition"
+required-features = ["youtube"]
+
 [dependencies]
 serde_json = "1"
 tide-core = { path = "../core" }

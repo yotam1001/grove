@@ -330,6 +330,37 @@ const STAGES: &[Stage] = &[
         ui.set_feature_tracks(ModelRc::default());
         ui.set_page(5);
     }),
+    // Windows integration (#19-#21, #32, #33): Settings cards and the crash notice.
+    ("settings", |ui| {
+        size(ui, WIDE);
+        ui.set_page(8);
+        crate::app::system_fixtures(ui);
+    }),
+    ("settings-narrow", |ui| size(ui, NARROW)),
+    ("settings-light", |ui| {
+        size(ui, WIDE);
+        ui.invoke_appearance("theme-system".into());
+        crate::theme_watch::simulate(Some(true));
+        crate::theme_watch::poll(ui);
+    }),
+    ("crash-notice", |ui| {
+        crate::theme_watch::simulate(Some(false));
+        crate::theme_watch::poll(ui);
+        ui.set_page(5);
+        let system = ui.global::<crate::GroveSystem>();
+        system.set_crash_report(
+            crate::crash::redact(
+                "Grove crashed
+message: synthetic fixture for listener@example.com
+",
+                &[],
+                &Default::default(),
+            )
+            .into(),
+        );
+        system.set_crash_pending(true);
+    }),
+    ("crash-notice-narrow", |ui| size(ui, NARROW)),
 ];
 
 /// Starts the screenshot script; `index` is the position of `--smoke-ui` in the arguments.

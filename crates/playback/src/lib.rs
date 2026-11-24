@@ -16,10 +16,18 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader, WriteHa
 use tokio::sync::{mpsc, watch};
 use url::Url;
 
+// YouTube extraction (yt-dlp, prepared next streams, signed-in cookie copies)
+// is opt-in. Without the `youtube` feature these modules are inert stand-ins.
+#[cfg(feature = "youtube")]
 mod cookie_updates;
+#[cfg(feature = "youtube")]
 mod prefetch;
+#[cfg(not(feature = "youtube"))]
+mod youtube_off;
 pub use cookie_updates::CookieUpdate;
 use cookie_updates::CookieUpdates;
+#[cfg(not(feature = "youtube"))]
+use youtube_off::{cookie_updates, prefetch};
 #[cfg(windows)]
 mod recovery;
 use prefetch::{Preparation, PreparedStream};
@@ -468,7 +476,11 @@ impl RuntimePaths {
     }
 
     fn discover_yt_dlp() -> Option<PathBuf> {
-        find_runtime_binary("yt-dlp.exe")
+        if cfg!(feature = "youtube") {
+            find_runtime_binary("yt-dlp.exe")
+        } else {
+            None
+        }
     }
 }
 
@@ -551,6 +563,9 @@ fn validate_source(source: &str) -> Result<ValidatedSource, String> {
             );
         }
         let is_youtube = url.host_str().is_some_and(is_youtube_host);
+        if is_youtube && !cfg!(feature = "youtube") {
+            return Err("YouTube sources are not supported by this player.".into());
+        }
         return Ok(ValidatedSource {
             source: url.to_string(),
             is_youtube,
@@ -1066,7 +1081,11 @@ async fn launch_player(
         .arg("--audio-display=no")
         .arg("--osc=no")
         .arg("--osd-level=0")
-        .arg("--ytdl=yes")
+        .arg(if cfg!(feature = "youtube") {
+            "--ytdl=yes"
+        } else {
+            "--ytdl=no"
+        })
         .arg("--ytdl-format=bestaudio/best")
         .arg("--ytdl-raw-options=ignore-config=")
         .arg("--cache=yes")
@@ -2049,6 +2068,24 @@ mod tests {
         }
     }
 
+    #[cfg(not(feature = "youtube"))]
+    #[test]
+    fn youtube_sources_are_rejected_without_the_feature() {
+        for source in [
+            "https://music.youtube.com/watch?v=abc",
+            "https://youtu.be/abc",
+        ] {
+            assert!(validate_source(source).is_err(), "{source}");
+        }
+        assert!(
+            !validate_source("https://youtube.com.example.org/watch?v=abc")
+                .unwrap()
+                .is_youtube
+        );
+        assert!(RuntimePaths::discover_yt_dlp().is_none());
+    }
+
+    #[cfg(feature = "youtube")]
     #[test]
     fn validates_youtube_hosts_without_accepting_suffix_spoofs() {
         assert!(
