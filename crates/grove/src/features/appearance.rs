@@ -19,6 +19,7 @@ pub(super) fn load_preferences(ui: &GroveWindow, offline: bool) -> Preferences {
     ui.set_autoplay(prefs.autoplay);
     ui.set_media_keys(prefs.media_keys);
     ui.set_local_history(prefs.local_history);
+    ui.set_accent_follows_art(prefs.accent_art);
     if prefs.compact {
         ui.window().set_size(slint::LogicalSize::new(760.0, 640.0));
     }
@@ -51,6 +52,7 @@ pub(super) fn bind(ui: &GroveWindow, this: &Rc<RefCell<Features>>) {
                     ui.set_feature_message("Session listening history cleared.".into());
                 }
                 "reset-hidden" => f.prefs.hidden.clear(),
+                "accent-art" => f.prefs.accent_art = !f.prefs.accent_art,
                 _ => return,
             }
             ui.set_light_mode(f.prefs.light);
@@ -58,6 +60,10 @@ pub(super) fn bind(ui: &GroveWindow, this: &Rc<RefCell<Features>>) {
             ui.set_autoplay(f.prefs.autoplay);
             ui.set_media_keys(f.prefs.media_keys);
             ui.set_local_history(f.prefs.local_history);
+            ui.set_accent_follows_art(f.prefs.accent_art);
+            if action == "autoplay" || action == "reset-hidden" {
+                f.render_queue(&ui);
+            }
             f.save(&ui);
         }
     });

@@ -1,6 +1,12 @@
-// Now playing (page 0): the current track and the link opener.
-import { GroveButton, Mark } from "../components.slint";
-import { GroveTheme } from "../theme.slint";
+// Now playing (page 0). `NowPlayingView` is the immersive view (#13): a large
+// cover over a slowly drifting blurred backdrop, a contrast-safe accent taken
+// from the artwork, and synced lyrics or the queue beside it (#12).
+// `NowPlayingPage` is the earlier compact block, kept for existing callers.
+import { Button, LineEdit, ScrollView } from "std-widgets.slint";
+import { GroveTrack, GroveLyricLine } from "../model.slint";
+import { GroveButton, GroveChip, GroveCover, GroveEyebrow, GroveLine, GroveEmpty, Mark } from "../components.slint";
+import { GroveTheme, GroveMotion } from "../theme.slint";
+import { LyricsPanel } from "../lyrics.slint";
 
 export component NowPlayingPage inherits VerticalLayout {
     in property <string> context-name;
@@ -11,23 +17,11 @@ export component NowPlayingPage inherits VerticalLayout {
     spacing: 26px; vertical-stretch: 0;
     VerticalLayout {
         spacing: 6px; vertical-stretch: 0;
-        
         if root.context-name != "" : Text { text: root.context-name; color: GroveTheme.muted; font-size: 13px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
     }
     HorizontalLayout {
         spacing: 26px; height: root.narrow ? 120px : 180px;
-        Rectangle {
-            width: root.narrow ? 120px : 180px; height: self.width;
-            background: GroveTheme.rail; border-radius: 12px;
-            border-width: 1px; border-color: GroveTheme.border;
-            for fraction in [0.84, 0.69, 0.54, 0.39] : Rectangle {
-                width: parent.width * fraction; height: self.width;
-                x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
-                border-radius: self.width / 2;
-                background: transparent; border-width: 1px; border-color: GroveTheme.line;
-            }
-            Mark { kind: "note"; width: 68px; height: 68px; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; }
-        }
+        GroveCover { width: root.narrow ? 120px : 180px; height: self.width; radius: GroveTheme.radius-lg; seed: root.track-title; }
         VerticalLayout {
             alignment: center; spacing: 10px;
             Text { text: root.track-title; color: GroveTheme.text; font-size: 23px; font-weight: 600; wrap: word-wrap; }
@@ -35,4 +29,253 @@ export component NowPlayingPage inherits VerticalLayout {
         }
     }
     GroveButton { text: root.show-link ? "Close link" : "Open a Spotify link"; flat: true; width: 190px; clicked => { root.show-link = !root.show-link; } }
+}
+
+// A compact queue row used by the Up next tab.
+component UpNextRow inherits Rectangle {
+    in property <GroveTrack> track;
+    in property <string> tag;
+    height: 52px;
+    border-radius: GroveTheme.radius-md;
+    background: touch.has-hover ? GroveTheme.hover.with-alpha(0.7) : transparent;
+    animate background { duration: GroveMotion.fast; }
+    touch := TouchArea { }
+    HorizontalLayout {
+        padding-left: 8px; padding-right: 10px; spacing: 12px; cross-axis-alignment: center;
+        GroveCover { width: 38px; height: 38px; seed: root.track.title; }
+        VerticalLayout {
+            horizontal-stretch: 1; min-width: 0px; alignment: center;
+            GroveLine { text: root.track.title; font-size: 13px; font-weight: 600; }
+            GroveLine { text: root.track.artist; font-size: 12px; ink: GroveTheme.muted; }
+        }
+        if root.tag != "" : Text { text: root.tag; color: GroveTheme.muted; font-size: 11px; vertical-alignment: center; }
+        Text { text: root.track.duration; color: GroveTheme.muted; font-size: 12px; vertical-alignment: center; }
+    }
+}
+
+export component NowPlayingView inherits Rectangle {
+    in property <string> track-title;
+    in property <string> artist;
+    in property <string> album;
+    in property <string> context-name;
+    in property <image> cover;
+    in property <image> backdrop;
+    in property <bool> playing;
+    in property <bool> has-track;
+    in property <bool> current-saved;
+    in property <bool> current-hidden;
+    in property <bool> can-rate;
+    in property <bool> artist-enabled;
+    in property <bool> follow-art;
+    in property <[GroveTrack]> up-next;
+    in property <[GroveTrack]> autoplay-next;
+    in property <[GroveLyricLine]> lyrics-lines;
+    in property <int> lyrics-active: -1;
+    in property <bool> lyrics-synced;
+    in property <int> lyrics-state;
+    in property <string> lyrics-status;
+    in property <string> lyrics-source;
+    in property <bool> lyrics-seek-enabled;
+    // 0 lyrics, 1 up next.
+    in-out property <int> tab: 0;
+    in-out property <bool> show-link;
+    in-out property <string> link;
+    in property <bool> can-play-link;
+    in property <string> message;
+    callback play-link;
+    callback song-action(string,string);
+    callback hide-current(bool);
+    callback toggle-follow-art;
+    callback lyrics-seek(int);
+    callback lyrics-retry;
+    callback open-queue;
+    callback close;
+
+    // Contrast-safe accent derived from the artwork (Rust keeps 4.5:1).
+    private property <color> np-accent: GroveTheme.art-valid ? (GroveTheme.light ? GroveTheme.art-accent-light : GroveTheme.art-accent-dark) : GroveTheme.accent-base;
+    private property <color> tint: GroveTheme.art-valid ? GroveTheme.art-tint : GroveTheme.accent-base;
+    animate np-accent, tint { duration: GroveMotion.slow; easing: ease-in-out; }
+    private property <bool> stacked: root.width < 860px;
+    private property <bool> short: root.height < 470px;
+    private property <length> art: root.stacked ? (root.short ? 96px : 132px) : max(180px, min(420px, min(root.height - 190px, (root.width - 120px) * 0.38)));
+    private property <float> phase: 0;
+    private property <bool> entered: false;
+
+    background: GroveTheme.canvas;
+    clip: true;
+    TouchArea { }
+    init => { root.entered = true; }
+
+    // Drifting blurred cover. Whole-pixel steps every 120 ms keep the software
+    // renderer cheap; the timer stops while paused or when motion is off.
+    Timer {
+        interval: 120ms;
+        running: root.playing && GroveMotion.enabled && root.backdrop.width > 0;
+        triggered => { root.phase = mod(root.phase + 0.0035, 1); }
+    }
+    if root.backdrop.width > 0 : Image {
+        x: round(-70 + sin(root.phase * 360deg) * 46) * 1px;
+        y: round(-70 + cos(root.phase * 360deg) * 34) * 1px;
+        width: parent.width + 140px; height: parent.height + 140px;
+        source: root.backdrop; image-fit: ImageFit.cover; image-rendering: smooth;
+        opacity: GroveTheme.light ? 0.5 : 0.75;
+    }
+    Rectangle {
+        background: GroveTheme.light ? @linear-gradient(180deg, #f3f6f3a0 0%, #f3f6f3f0 100%) : @linear-gradient(180deg, #12141570 0%, #121415f2 100%);
+    }
+    Rectangle {
+        background: @linear-gradient(150deg, root.tint.with-alpha(GroveTheme.light ? 0.22 : 0.26) 0%, root.tint.with-alpha(0) 100%);
+    }
+
+    content := Rectangle {
+        y: root.entered ? 0px : 14px;
+        opacity: root.entered ? 1 : 0;
+        animate y, opacity { duration: GroveMotion.slow; easing: ease-out; }
+
+        // Wide: cover and details on the left, lyrics or Up next on the right.
+        if !root.stacked : HorizontalLayout {
+            padding-left: 48px; padding-right: 40px; padding-top: 56px; padding-bottom: 28px;
+            spacing: 44px;
+            VerticalLayout {
+                width: root.art; alignment: center; spacing: 10px;
+                GroveCover {
+                    width: root.art; height: root.art; radius: GroveTheme.radius-xl; source: root.cover; seed: root.track-title;
+                    drop-shadow-blur: 44px; drop-shadow-offset-y: 18px; drop-shadow-color: GroveTheme.shadow;
+                }
+                Rectangle { height: 12px; }
+                HorizontalLayout {
+                    spacing: 8px; height: 16px; cross-axis-alignment: center;
+                    if root.playing : Rectangle { width: 8px; height: 8px; border-radius: 4px; background: root.np-accent; }
+                    GroveEyebrow { text: (root.playing ? "NOW PLAYING" : root.has-track ? "PAUSED" : "NOTHING PLAYING") + (root.context-name != "" ? " · " + root.context-name : ""); color: root.np-accent; overflow: elide; horizontal-stretch: 1; }
+                }
+                Rectangle {
+                    height: title.preferred-height > 80px ? 80px : title.preferred-height; clip: true;
+                    title := Text { width: parent.width; text: root.track-title; color: GroveTheme.text; font-size: root.art > 340px ? 30px : 24px; font-weight: 750; wrap: word-wrap; overflow: elide; }
+                }
+                artist-row := Rectangle {
+                    height: 24px; clip: true;
+                    GroveLine { width: parent.width; height: parent.height; text: root.artist; font-size: 16px; ink: artist-touch.has-hover && artist-touch.enabled ? GroveTheme.text : GroveTheme.secondary; }
+                    artist-touch := TouchArea { enabled: root.artist-enabled; mouse-cursor: self.enabled ? pointer : default; Button { width: parent.width; height: parent.height; opacity: 0; text: ""; enabled: parent.enabled; accessible-label: "View artist " + root.artist; clicked => { root.song-action("Artist", ""); } } }
+                }
+                if root.album != "" : GroveLine { text: root.album; font-size: 13px; ink: GroveTheme.muted; }
+                HorizontalLayout {
+                    spacing: 8px; alignment: start; padding-top: 6px;
+                    GroveButton { icon: root.current-saved ? "heart-filled" : "heart"; round: true; width: 40px; height: 40px; icon-size: 18px; active-icon: root.current-saved; enabled: root.can-rate; label: root.current-saved ? "Remove from Liked Songs" : "Like this song"; clicked => { root.song-action(root.current-saved ? "Unsave" : "Save", ""); } }
+                    GroveButton { icon: "hide"; round: true; width: 40px; height: 40px; icon-size: 18px; active-icon: root.current-hidden; selected: root.current-hidden; enabled: root.can-rate; label: root.current-hidden ? "Show this song again" : "Hide this song (not interested)"; clicked => { root.hide-current(!root.current-hidden); } }
+                    GroveChip { text: "Match artwork"; icon: "palette"; active: root.follow-art; label: root.follow-art ? "Stop using the artwork colour as Grove's accent" : "Use the artwork colour as Grove's accent"; clicked => { root.toggle-follow-art(); } }
+                }
+            }
+            panel := Rectangle {
+                width: max(280px, root.width - root.art - 132px);
+                background: GroveTheme.surface.with-alpha(GroveTheme.light ? 0.62 : 0.42);
+                border-radius: GroveTheme.radius-xl;
+                border-width: 1px; border-color: GroveTheme.line.with-alpha(0.6);
+                VerticalLayout {
+                    padding: 20px; spacing: 12px;
+                    HorizontalLayout {
+                        spacing: 8px; alignment: start; height: 32px;
+                        GroveChip { text: "Lyrics"; icon: "lyrics"; active: root.tab == 0; clicked => { root.tab = 0; } }
+                        GroveChip { text: "Up next"; icon: "queue-play"; active: root.tab == 1; clicked => { root.tab = 1; } }
+                        Rectangle { horizontal-stretch: 1; }
+                        GroveChip { text: root.show-link ? "Close link" : "Open a link"; icon: "link"; active: root.show-link; clicked => { root.show-link = !root.show-link; } }
+                    }
+                    if root.show-link : HorizontalLayout {
+                        spacing: 8px; height: 40px;
+                        LineEdit { text <=> root.link; placeholder-text: "Paste a Spotify link"; accessible-label: "Spotify link"; horizontal-stretch: 1; accepted => { root.play-link(); } }
+                        GroveButton { text: "Play"; accent: true; round: true; width: 84px; enabled: root.can-play-link; clicked => { root.play-link(); } }
+                    }
+                    if root.message != "" : Text { text: root.message; color: GroveTheme.warning; font-size: 12px; wrap: word-wrap; }
+                    if root.tab == 0 : LyricsPanel {
+                        vertical-stretch: 1;
+                        lines: root.lyrics-lines; active: root.lyrics-active; synced: root.lyrics-synced;
+                        state: root.lyrics-state; status: root.lyrics-status; source: root.lyrics-source;
+                        seek-enabled: root.lyrics-seek-enabled;
+                        seek-line(i) => { root.lyrics-seek(i); }
+                        retry => { root.lyrics-retry(); }
+                    }
+                    if root.tab == 1 : up-next-list := Rectangle {
+                        vertical-stretch: 1;
+                        if root.up-next.length == 0 && root.autoplay-next.length == 0 : GroveEmpty { width: parent.width; height: parent.height; icon: "queue-play"; heading: "Nothing queued"; detail: "Add songs from any song's menu, or turn on autoplay in the queue."; }
+                        if root.up-next.length > 0 || root.autoplay-next.length > 0 : ScrollView {
+                            VerticalLayout {
+                                spacing: 2px; alignment: start;
+                                if root.up-next.length > 0 : GroveEyebrow { text: "NEXT IN QUEUE"; height: 26px; }
+                                for t in root.up-next : UpNextRow { track: t; }
+                                if root.autoplay-next.length > 0 : GroveEyebrow { text: "NEXT FROM AUTOPLAY"; height: 30px; }
+                                for t in root.autoplay-next : UpNextRow { track: t; tag: "Autoplay"; }
+                            }
+                        }
+                    }
+                    if root.tab == 1 : GroveButton { text: "Open queue"; icon: "queue-play"; width: 150px; height: 36px; clicked => { root.open-queue(); } }
+                }
+            }
+        }
+
+        // Narrow: a header row with a smaller cover, the panel below.
+        if root.stacked : VerticalLayout {
+            padding: root.short ? 14px : 22px; padding-top: root.short ? 46px : 54px; spacing: root.short ? 10px : 16px;
+            HorizontalLayout {
+                spacing: 16px; cross-axis-alignment: center;
+                GroveCover { width: root.art; height: root.art; radius: GroveTheme.radius-lg; source: root.cover; seed: root.track-title; drop-shadow-blur: 24px; drop-shadow-offset-y: 8px; drop-shadow-color: GroveTheme.shadow; }
+                VerticalLayout {
+                    horizontal-stretch: 1; min-width: 0px; alignment: center; spacing: 4px;
+                    GroveEyebrow { text: root.playing ? "NOW PLAYING" : root.has-track ? "PAUSED" : "NOTHING PLAYING"; color: root.np-accent; }
+                    GroveLine { text: root.track-title; font-size: 20px; font-weight: 750; }
+                    GroveLine { text: root.artist; font-size: 14px; ink: GroveTheme.secondary; }
+                    HorizontalLayout {
+                        spacing: 6px; alignment: start; padding-top: 4px;
+                        GroveButton { icon: root.current-saved ? "heart-filled" : "heart"; round: true; width: 36px; height: 36px; icon-size: 16px; active-icon: root.current-saved; enabled: root.can-rate; label: root.current-saved ? "Remove from Liked Songs" : "Like this song"; clicked => { root.song-action(root.current-saved ? "Unsave" : "Save", ""); } }
+                        GroveButton { icon: "hide"; round: true; width: 36px; height: 36px; icon-size: 16px; active-icon: root.current-hidden; selected: root.current-hidden; enabled: root.can-rate; label: root.current-hidden ? "Show this song again" : "Hide this song (not interested)"; clicked => { root.hide-current(!root.current-hidden); } }
+                        GroveButton { icon: "palette"; round: true; width: 36px; height: 36px; icon-size: 16px; selected: root.follow-art; active-icon: root.follow-art; label: root.follow-art ? "Stop using the artwork colour as Grove's accent" : "Use the artwork colour as Grove's accent"; clicked => { root.toggle-follow-art(); } }
+                    }
+                }
+            }
+            Rectangle {
+                vertical-stretch: 1;
+                background: GroveTheme.surface.with-alpha(GroveTheme.light ? 0.62 : 0.42);
+                border-radius: GroveTheme.radius-lg;
+                border-width: 1px; border-color: GroveTheme.line.with-alpha(0.6);
+                VerticalLayout {
+                    padding: 12px; spacing: 8px;
+                    HorizontalLayout {
+                        spacing: 8px; alignment: start; height: 32px;
+                        GroveChip { text: "Lyrics"; icon: "lyrics"; active: root.tab == 0; clicked => { root.tab = 0; } }
+                        GroveChip { text: "Up next"; icon: "queue-play"; active: root.tab == 1; clicked => { root.tab = 1; } }
+                        Rectangle { horizontal-stretch: 1; }
+                        GroveButton { icon: "link"; flat: true; round: true; width: 32px; height: 32px; icon-size: 16px; selected: root.show-link; label: root.show-link ? "Close link" : "Open a Spotify link"; clicked => { root.show-link = !root.show-link; } }
+                    }
+                    if root.show-link : HorizontalLayout {
+                        spacing: 8px; height: 40px;
+                        LineEdit { text <=> root.link; placeholder-text: "Paste a Spotify link"; accessible-label: "Spotify link"; horizontal-stretch: 1; accepted => { root.play-link(); } }
+                        GroveButton { text: "Play"; accent: true; round: true; width: 84px; enabled: root.can-play-link; clicked => { root.play-link(); } }
+                    }
+                    if root.message != "" : Text { text: root.message; color: GroveTheme.warning; font-size: 12px; wrap: word-wrap; }
+                    if root.tab == 0 : LyricsPanel {
+                        vertical-stretch: 1; compact: true;
+                        lines: root.lyrics-lines; active: root.lyrics-active; synced: root.lyrics-synced;
+                        state: root.lyrics-state; status: root.lyrics-status; source: root.lyrics-source;
+                        seek-enabled: root.lyrics-seek-enabled;
+                        seek-line(i) => { root.lyrics-seek(i); }
+                        retry => { root.lyrics-retry(); }
+                    }
+                    if root.tab == 1 : Rectangle {
+                        vertical-stretch: 1;
+                        if root.up-next.length == 0 && root.autoplay-next.length == 0 : GroveEmpty { width: parent.width; height: parent.height; icon: "queue-play"; heading: "Nothing queued"; detail: ""; }
+                        if root.up-next.length > 0 || root.autoplay-next.length > 0 : ScrollView {
+                            VerticalLayout {
+                                spacing: 2px; alignment: start;
+                                for t in root.up-next : UpNextRow { track: t; }
+                                for t in root.autoplay-next : UpNextRow { track: t; tag: "Autoplay"; }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    GroveButton {
+        x: 14px; y: 12px; width: 36px; height: 36px; round: true; flat: true; icon: "collapse"; icon-size: 18px;
+        label: "Close Now Playing";
+        clicked => { root.close(); }
+    }
 }
