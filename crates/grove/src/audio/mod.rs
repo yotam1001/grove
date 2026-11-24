@@ -13,6 +13,8 @@ pub mod quality;
 pub mod reconnect;
 pub mod recovery;
 pub mod resume;
+pub mod review;
 pub mod settings;
 pub mod sink;
 pub mod sleep;
+pub mod ui;

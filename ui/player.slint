@@ -32,6 +32,9 @@ export component PlayerBar inherits Rectangle {
     in property <string> total;
     in property <float> volume;
     in property <string> status;
+    // Audio: a lost session being restored wins over the sleep countdown.
+    in property <string> reconnecting;
+    in property <string> sleep-remaining;
     // Shell additions: Hide (#30), the queue drawer, lyrics and Now Playing.
     in property <bool> current-hidden: false;
     in property <bool> queue-open: false;
@@ -159,7 +162,7 @@ export component PlayerBar inherits Rectangle {
                 GroveButton { icon: root.volume <= 0 ? "volume-off" : "volume"; flat: true; round: true; width: 36px; height: 36px; icon-size: 18px; label: root.volume <= 0 ? "Unmute" : "Mute"; enabled: root.authenticated || root.local-active; clicked => { root.toggle-mute(); } }
                 if !root.narrow : GroveSlider { width: clamp(root.right-width - 160px, 72px, 128px); height: 36px; minimum: 0; maximum: 100; value: root.volume; enabled: root.authenticated || root.local-active; label: "Volume"; released(value) => { root.set-volume(value); } }
             }
-            Text { text: root.status; color: GroveTheme.muted; font-size: 11px; overflow: elide; horizontal-alignment: right; }
+            Text { text: root.reconnecting != "" ? root.reconnecting : root.sleep-remaining != "" ? root.sleep-remaining : root.status; color: root.reconnecting != "" ? GroveTheme.warning : root.sleep-remaining != "" ? GroveTheme.secondary : GroveTheme.muted; font-size: 11px; overflow: elide; horizontal-alignment: right; }
         }
     }
 

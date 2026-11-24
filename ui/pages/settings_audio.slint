@@ -1,0 +1,259 @@
+// Settings → Audio as SettingsCard groups: sound quality, output, fade and
+// equalizer, sleep timer and resume positions. Rust fills `GroveAudio`.
+// `NowPlayingAudio` adds the source format, resume point, sleep timer and
+// reconnect lines to Now Playing.
+import { LineEdit } from "std-widgets.slint";
+import { GroveButton, GroveChip, GroveSlider } from "../components.slint";
+import { GroveTheme } from "../theme.slint";
+import { SettingsCard, SettingRow, SettingSwitch, SegmentedChoice, SettingStatus } from "../settings_components.slint";
+
+export struct GroveChoice { label: string, selected: bool, available: bool }
+export struct GroveBand { label: string, gain: float, value: string }
+export struct GroveSaved { title: string, position: string, total: string }
+
+export global GroveAudio {
+    in property <int> bitrate: 160;
+    in property <bool> normalise: false;
+    in property <int> normalisation: 0;
+    in property <int> pregain: 0;
+    in property <[GroveChoice]> devices: [{ label: "System default", selected: true, available: true }];
+    in property <string> output-note;
+    in property <bool> output-attention;
+    in property <int> fade-seconds: 0;
+    in property <int> eq-preset: 0;
+    in property <[string]> eq-presets-first: ["Flat", "Bass boost", "Bass reducer", "Treble boost"];
+    in property <[string]> eq-presets-more: ["Vocal", "Loudness", "Acoustic", "Custom"];
+    in property <int> band-count: 10;
+    in property <[GroveBand]> bands;
+    in property <string> sleep-label;
+    in-out property <string> sleep-custom;
+    in property <string> reconnecting;
+    in property <string> source-quality;
+    in property <string> resume-note;
+    in property <bool> remember-positions: true;
+    in property <[GroveSaved]> saved-positions;
+    in property <string> note;
+    out property <bool> now-playing-lines: self.reconnecting != "" || self.source-quality != "" || self.sleep-label != "" || self.resume-note != "";
+    // ("bitrate", kbps) ("normalisation", index) ("pregain", dB) ("device", index)
+    // ("fade", seconds) ("eq", preset) ("bands", 5 or 10) ("sleep", minutes; -1 end of song; 0 off)
+    // ("forget", row) ("start-over", 0)
+    callback choose(string, int);
+    // "normalise", "remember", "reset-bands", "sleep-custom", "forget-all"
+    callback toggle(string);
+    callback set-band(int, float);
+    callback edit-position(int, string);
+}
+
+// A labelled row whose controls wrap below the text, for choices too wide
+// to sit beside it at narrow widths.
+component StackedRow inherits Rectangle {
+    in property <string> text;
+    in property <string> note;
+    in property <bool> separator: true;
+    if root.separator : Rectangle { x: 18px; y: 0px; width: parent.width - 36px; height: 1px; background: GroveTheme.line; }
+    VerticalLayout {
+        padding-left: 18px; padding-right: 18px; padding-top: 10px; padding-bottom: 12px; spacing: 8px;
+        VerticalLayout {
+            spacing: 2px;
+            Text { text: root.text; color: GroveTheme.text; font-size: 14px; font-weight: 600; wrap: word-wrap; }
+            if root.note != "" : Text { text: root.note; color: GroveTheme.muted; font-size: 12.5px; wrap: word-wrap; }
+        }
+        @children
+    }
+}
+
+// One selectable output device.
+component DeviceRow inherits Rectangle {
+    in property <GroveChoice> device;
+    callback clicked;
+    height: 40px;
+    border-radius: 9px;
+    background: root.device.selected ? GroveTheme.accent-soft : touch.has-hover ? GroveTheme.hover : transparent;
+    border-width: root.device.selected ? 1px : 0px;
+    border-color: root.device.available ? GroveTheme.accent : GroveTheme.warning;
+    animate background { duration: 110ms; }
+    HorizontalLayout {
+        padding-left: 12px; padding-right: 12px; spacing: 10px; cross-axis-alignment: center;
+        Rectangle {
+            width: 16px; height: 16px; border-radius: 8px;
+            border-width: 2px; border-color: root.device.selected ? (root.device.available ? GroveTheme.accent : GroveTheme.warning) : GroveTheme.muted;
+            if root.device.selected : Rectangle { x: 4px; y: 4px; width: 8px; height: 8px; border-radius: 4px; background: root.device.available ? GroveTheme.accent : GroveTheme.warning; }
+        }
+        Text {
+            horizontal-stretch: 1; text: root.device.label; overflow: elide; vertical-alignment: center; font-size: 13.5px;
+            color: !root.device.available ? GroveTheme.warning : root.device.selected ? GroveTheme.text : GroveTheme.secondary;
+            font-weight: root.device.selected ? 600 : 400;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.device.available || root.device.selected;
+        mouse-cursor: self.enabled ? pointer : default;
+        accessible-role: button;
+        accessible-label: "Output " + root.device.label;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component SettingsAudio inherits VerticalLayout {
+    spacing: 16px; vertical-stretch: 0;
+
+    SettingsCard {
+        title: "Sound quality";
+        subtitle: "How Grove streams Spotify. Applies only to Grove, shared jams included.";
+        SettingStatus { text: GroveAudio.reconnecting; attention: true; }
+        SettingStatus { text: GroveAudio.note; }
+        SettingRow {
+            separator: false;
+            text: "Streaming quality";
+            note: GroveAudio.source-quality != "" ? "Now streaming " + GroveAudio.source-quality + "." : "Higher quality uses more data. A change restarts playback where you were.";
+            controls-width: 252px;
+            SegmentedChoice {
+                width: 252px; label: "Streaming quality";
+                options: ["96 kbps", "160 kbps", "320 kbps"];
+                selected: GroveAudio.bitrate == 96 ? 0 : GroveAudio.bitrate == 320 ? 2 : 1;
+                chosen(i) => { GroveAudio.choose("bitrate", i == 0 ? 96 : i == 2 ? 320 : 160); }
+            }
+        }
+        SettingSwitch { text: "Even out volume"; note: "Spotify's loudness levels, with a limiter so nothing clips."; checked: GroveAudio.normalise; toggled => { GroveAudio.toggle("normalise"); } }
+        if GroveAudio.normalise : SettingRow {
+            text: "Levelling";
+            note: "Automatic keeps album dynamics when you play an album.";
+            controls-width: 252px;
+            SegmentedChoice {
+                width: 252px; label: "Levelling";
+                options: ["Automatic", "Per song", "Per album"];
+                selected: GroveAudio.normalisation;
+                chosen(i) => { GroveAudio.choose("normalisation", i); }
+            }
+        }
+        if GroveAudio.normalise : SettingRow {
+            text: "Pregain";
+            note: "Raise or lower the levelled volume.";
+            controls-width: 252px;
+            SegmentedChoice {
+                width: 252px; label: "Pregain";
+                options: ["−6 dB", "−3 dB", "0 dB", "+3 dB"];
+                selected: GroveAudio.pregain == -6 ? 0 : GroveAudio.pregain == -3 ? 1 : GroveAudio.pregain == 3 ? 3 : 2;
+                chosen(i) => { GroveAudio.choose("pregain", i == 0 ? -6 : i == 1 ? -3 : i == 3 ? 3 : 0); }
+            }
+        }
+    }
+
+    SettingsCard {
+        title: "Output";
+        subtitle: "System default follows the output you choose in Windows.";
+        VerticalLayout {
+            padding-left: 12px; padding-right: 12px; padding-bottom: 8px; spacing: 2px;
+            for device[i] in GroveAudio.devices : DeviceRow { device: device; clicked => { GroveAudio.choose("device", i); } }
+        }
+        SettingStatus { text: GroveAudio.output-note; attention: GroveAudio.output-attention; }
+    }
+
+    SettingsCard {
+        title: "Fade and equalizer";
+        subtitle: "Shape how songs meet and how they sound.";
+        StackedRow {
+            separator: false;
+            text: "Fade between songs";
+            note: "Fades the end of each song and the start of the next. Albums played in order keep their gapless joins.";
+            HorizontalLayout {
+                alignment: start; spacing: 6px;
+                for seconds in [0, 2, 4, 6, 8, 10, 12] : GroveChip { text: seconds == 0 ? "Off" : seconds + " s"; active: GroveAudio.fade-seconds == seconds; label: seconds == 0 ? "No fade" : "Fade " + seconds + " seconds"; clicked => { GroveAudio.choose("fade", seconds); } }
+            }
+        }
+        StackedRow {
+            text: "Equalizer";
+            note: "Boosts lower the level first so they do not distort.";
+            HorizontalLayout {
+                alignment: start; spacing: 6px;
+                for name[i] in GroveAudio.eq-presets-first : GroveChip { text: name; active: GroveAudio.eq-preset == i; clicked => { GroveAudio.choose("eq", i); } }
+            }
+            HorizontalLayout {
+                alignment: start; spacing: 6px;
+                for name[i] in GroveAudio.eq-presets-more : GroveChip { text: name; active: GroveAudio.eq-preset == i + GroveAudio.eq-presets-first.length; clicked => { GroveAudio.choose("eq", i + GroveAudio.eq-presets-first.length); } }
+            }
+        }
+        if GroveAudio.eq-preset == GroveAudio.eq-presets-first.length + GroveAudio.eq-presets-more.length - 1 : StackedRow {
+            text: "Custom curve";
+            note: "Drag a band, then let go to hear it.";
+            HorizontalLayout {
+                alignment: start; spacing: 8px;
+                SegmentedChoice { width: 190px; label: "Number of bands"; options: ["5 bands", "10 bands"]; selected: GroveAudio.band-count == 5 ? 0 : 1; chosen(i) => { GroveAudio.choose("bands", i == 0 ? 5 : 10); } }
+                GroveButton { text: "Reset"; width: 76px; height: 34px; clicked => { GroveAudio.toggle("reset-bands"); } }
+            }
+            for band[i] in GroveAudio.bands : HorizontalLayout {
+                spacing: 10px; height: 28px;
+                Text { text: band.label; color: GroveTheme.secondary; font-size: 12px; width: 54px; vertical-alignment: center; }
+                GroveSlider { minimum: -12; maximum: 12; value: band.gain; label: band.label + " gain"; released(value) => { GroveAudio.set-band(i, value); } }
+                Text { text: band.value; color: GroveTheme.muted; font-size: 12px; width: 52px; vertical-alignment: center; horizontal-alignment: right; }
+            }
+        }
+    }
+
+    SettingsCard {
+        title: "Sleep timer";
+        subtitle: "The music fades out over 10 seconds, then pauses.";
+        StackedRow {
+            separator: false;
+            text: GroveAudio.sleep-label != "" ? GroveAudio.sleep-label : "Off";
+            note: "";
+            HorizontalLayout {
+                alignment: start; spacing: 6px;
+                GroveChip { text: "Off"; active: GroveAudio.sleep-label == ""; label: "Turn the sleep timer off"; clicked => { GroveAudio.choose("sleep", 0); } }
+                for minutes in [15, 30, 45, 60] : GroveChip { text: minutes + " min"; label: "Sleep in " + minutes + " minutes"; clicked => { GroveAudio.choose("sleep", minutes); } }
+                GroveChip { text: "End of song"; active: GroveAudio.sleep-label == "Sleep at end of song"; clicked => { GroveAudio.choose("sleep", -1); } }
+            }
+            HorizontalLayout {
+                alignment: start; spacing: 8px;
+                LineEdit { text <=> GroveAudio.sleep-custom; placeholder-text: "Custom, e.g. 25 or 1:30"; accessible-label: "Custom sleep timer length"; width: 220px; height: 36px; accepted => { GroveAudio.toggle("sleep-custom"); } }
+                GroveButton { text: "Start"; width: 76px; height: 36px; clicked => { GroveAudio.toggle("sleep-custom"); } }
+            }
+        }
+    }
+
+    SettingsCard {
+        title: "Resume long listens";
+        subtitle: "Podcast episodes and tracks over 20 minutes continue from where they stopped. Edit a position before you play it.";
+        SettingSwitch { separator: false; text: "Remember positions"; note: "Kept on this PC, newest 100."; checked: GroveAudio.remember-positions; toggled => { GroveAudio.toggle("remember"); } }
+        for saved[i] in GroveAudio.saved-positions : Rectangle {
+            Rectangle { x: 18px; y: 0px; width: parent.width - 36px; height: 1px; background: GroveTheme.line; }
+            HorizontalLayout {
+                padding-left: 18px; padding-right: 18px; padding-top: 6px; padding-bottom: 6px; spacing: 8px; height: 50px;
+                Text { text: saved.title; color: GroveTheme.text; font-size: 13.5px; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; min-width: 0px; }
+                LineEdit { text: saved.position; accessible-label: "Resume position for " + saved.title; width: 86px; height: 34px; accepted(text) => { GroveAudio.edit-position(i, text); } }
+                Text { text: "of " + saved.total; color: GroveTheme.muted; font-size: 12px; width: 62px; vertical-alignment: center; }
+                GroveButton { text: "Forget"; flat: true; width: 70px; height: 34px; label: "Forget the position for " + saved.title; clicked => { GroveAudio.choose("forget", i); } }
+            }
+        }
+        if GroveAudio.saved-positions.length > 1 : HorizontalLayout {
+            padding-left: 18px; padding-bottom: 8px; alignment: start;
+            GroveButton { text: "Forget all"; width: 100px; height: 34px; clicked => { GroveAudio.toggle("forget-all"); } }
+        }
+    }
+}
+
+// Audio lines for Now Playing. `compact` joins them on one wrapping line.
+export component NowPlayingAudio inherits VerticalLayout {
+    in property <bool> compact;
+    spacing: 4px; vertical-stretch: 0;
+    if GroveAudio.reconnecting != "" : HorizontalLayout {
+        spacing: 6px; cross-axis-alignment: center;
+        Rectangle { width: 8px; height: 8px; border-radius: 4px; background: GroveTheme.warning; }
+        Text { horizontal-stretch: 1; text: GroveAudio.reconnecting + (root.compact ? "" : ". Grove continues from the same spot."); color: GroveTheme.warning; font-size: 12.5px; wrap: word-wrap; }
+    }
+    if !root.compact && GroveAudio.source-quality != "" : Text { text: GroveAudio.source-quality; color: GroveTheme.muted; font-size: 12px; overflow: elide; }
+    if !root.compact && GroveAudio.sleep-label != "" : HorizontalLayout {
+        spacing: 6px; cross-axis-alignment: center;
+        Rectangle { width: 8px; height: 8px; border-radius: 4px; background: GroveTheme.accent; }
+        Text { text: GroveAudio.sleep-label; color: GroveTheme.secondary; font-size: 12.5px; }
+    }
+    if root.compact && (GroveAudio.source-quality != "" || GroveAudio.sleep-label != "") : Text {
+        text: GroveAudio.source-quality + (GroveAudio.source-quality != "" && GroveAudio.sleep-label != "" ? " · " : "") + GroveAudio.sleep-label;
+        color: GroveTheme.muted; font-size: 12px; overflow: elide;
+    }
+    if GroveAudio.resume-note != "" : HorizontalLayout {
+        spacing: 8px; alignment: start; cross-axis-alignment: center;
+        Text { text: GroveAudio.resume-note; color: GroveTheme.secondary; font-size: 12.5px; vertical-alignment: center; }
+        GroveChip { text: "Start over"; label: "Start this episode from the beginning"; clicked => { GroveAudio.choose("start-over", 0); } }
+    }
+}
