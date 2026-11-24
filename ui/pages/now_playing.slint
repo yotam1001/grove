@@ -7,6 +7,7 @@ import { GroveTrack, GroveLyricLine } from "../model.slint";
 import { GroveButton, GroveChip, GroveCover, GroveEyebrow, GroveLine, GroveEmpty, Mark } from "../components.slint";
 import { GroveTheme, GroveMotion } from "../theme.slint";
 import { LyricsPanel } from "../lyrics.slint";
+import { GroveAudio, NowPlayingAudio } from "settings_audio.slint";
 
 export component NowPlayingPage inherits VerticalLayout {
     in property <string> context-name;
@@ -158,6 +159,7 @@ export component NowPlayingView inherits Rectangle {
                     artist-touch := TouchArea { enabled: root.artist-enabled; mouse-cursor: self.enabled ? pointer : default; Button { width: parent.width; height: parent.height; opacity: 0; text: ""; enabled: parent.enabled; accessible-label: "View artist " + root.artist; clicked => { root.song-action("Artist", ""); } } }
                 }
                 if root.album != "" : GroveLine { text: root.album; font-size: 13px; ink: GroveTheme.muted; }
+                if GroveAudio.now-playing-lines : NowPlayingAudio { }
                 HorizontalLayout {
                     spacing: 8px; alignment: start; padding-top: 6px;
                     GroveButton { icon: root.current-saved ? "heart-filled" : "heart"; round: true; width: 40px; height: 40px; icon-size: 18px; active-icon: root.current-saved; enabled: root.can-rate; label: root.current-saved ? "Remove from Liked Songs" : "Like this song"; clicked => { root.song-action(root.current-saved ? "Unsave" : "Save", ""); } }
@@ -230,6 +232,7 @@ export component NowPlayingView inherits Rectangle {
                     }
                 }
             }
+            if GroveAudio.now-playing-lines : NowPlayingAudio { compact: true; }
             Rectangle {
                 vertical-stretch: 1;
                 background: GroveTheme.surface.with-alpha(GroveTheme.light ? 0.62 : 0.42);

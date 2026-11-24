@@ -68,6 +68,13 @@ pub struct State {
     pub shuffle: bool,
     pub repeat: bool,
     pub actions: Value,
+    /// Player text while a lost session is restored; empty otherwise.
+    pub reconnecting: String,
+    /// Source format of `source_uri`, e.g. "Ogg Vorbis · 320 kbps · 44.1 kHz".
+    pub source_quality: String,
+    pub source_uri: String,
+    /// The song that resumed from a saved position, and where.
+    pub resumed: Option<(String, u64)>,
     position: f32,
     speed: f32,
     anchor: Instant,
@@ -89,6 +96,10 @@ impl Default for State {
             shuffle: false,
             repeat: false,
             actions: Value::Null,
+            reconnecting: String::new(),
+            source_quality: String::new(),
+            source_uri: String::new(),
+            resumed: None,
             position: 0.0,
             speed: 0.0,
             anchor: Instant::now(),
@@ -106,7 +117,19 @@ impl State {
     }
 
     pub fn allows(&self, action: &str) -> bool {
-        self.authenticated && self.active && self.actions.get(action).is_some()
+        self.authenticated
+            && self.active
+            && self.reconnecting.is_empty()
+            && self.actions.get(action).is_some()
+    }
+
+    /// The current song's source format, when known for this song.
+    pub fn source(&self) -> &str {
+        if !self.track.uri.is_empty() && self.source_uri == self.track.uri {
+            &self.source_quality
+        } else {
+            ""
+        }
     }
 
     fn set_position(&mut self, position: &Value) {
@@ -184,6 +207,34 @@ impl State {
                     .to_owned();
             }
             "options_changed" => self.options(&event["options"]),
+            "reconnecting" => {
+                // Keep the song and frozen clock on screen; controls wait.
+                self.position = self.position();
+                self.playing = false;
+                self.speed = 0.0;
+                self.anchor = Instant::now();
+                self.reconnecting = event["label"]
+                    .as_str()
+                    .unwrap_or("Reconnecting…")
+                    .chars()
+                    .take(120)
+                    .collect();
+            }
+            "source" => {
+                self.source_uri = event["uri"].as_str().unwrap_or_default().to_owned();
+                self.source_quality = event["label"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .chars()
+                    .take(80)
+                    .collect();
+            }
+            "resumed" => {
+                self.resumed = event["uri"]
+                    .as_str()
+                    .zip(event["position_ms"].as_u64())
+                    .map(|(uri, position)| (uri.to_owned(), position));
+            }
             "queue_changed" => {
                 self.queue = event["upcoming"]
                     .as_array()
@@ -289,6 +340,30 @@ mod tests {
         assert_eq!(state.play_request_id, Some(0));
         state.apply(&json!({"type":"playback_state","play_request_id":1,"status":"playing"}));
         assert_eq!(state.play_request_id, Some(1));
+    }
+
+    #[test]
+    fn reconnecting_keeps_the_song_but_holds_the_controls() {
+        let mut state = State::default();
+        state.apply(&json!({"type":"auth_state","logged_in":true,"is_active":true}));
+        state.apply(&json!({"type":"playback_state","status":"playing","is_active":true,
+            "item":{"uri":"spotify:track:example","decorations":{"identity":{"name":"Track"},"playback":{"duration_ms":200000}}},
+            "position":{"position_ms":45000,"speed":1},"available_actions":{"play":{},"pause":{}}}));
+        state.apply(&json!({"type":"source","uri":"spotify:track:example","label":"Ogg Vorbis · 320 kbps · 44.1 kHz"}));
+        assert_eq!(state.source(), "Ogg Vorbis · 320 kbps · 44.1 kHz");
+        assert!(state.allows("pause"));
+        state.apply(&json!({"type":"reconnecting","label":"Reconnecting…"}));
+        assert_eq!(state.reconnecting, "Reconnecting…");
+        assert!(!state.playing);
+        assert!(!state.allows("play"), "No dead transport: controls wait");
+        assert_eq!(state.track.title, "Track");
+        let frozen = state.position();
+        assert!(frozen >= 45000.0);
+        assert_eq!(state.position(), frozen);
+        state.apply(&json!({"type":"track_changed","item":{"uri":"spotify:track:other","decorations":{"identity":{"name":"Next"}}}}));
+        assert_eq!(state.source(), "", "Another song's quality is not shown");
+        state.apply(&json!({"type":"resumed","uri":"spotify:episode:x","position_ms":61000}));
+        assert_eq!(state.resumed, Some(("spotify:episode:x".into(), 61000)));
     }
 
     #[test]

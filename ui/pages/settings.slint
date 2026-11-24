@@ -7,6 +7,7 @@ import { GroveButton } from "../components.slint";
 import { GroveTheme } from "../theme.slint";
 import { GroveSystem } from "../system.slint";
 import { SettingsCard, SettingRow, SettingSwitch, SegmentedChoice, ShortcutRow, SettingStatus } from "../settings_components.slint";
+import { SettingsAudio } from "settings_audio.slint";
 
 export component SettingsPage inherits VerticalLayout {
     in property <bool> light-mode;
@@ -115,6 +116,7 @@ export component SettingsPage inherits VerticalLayout {
     }
 
     // Other Settings areas mount here, one line each, e.g. `SettingsAudio { }`.
+    SettingsAudio { }
 
     SettingsCard {
         title: "Updates";

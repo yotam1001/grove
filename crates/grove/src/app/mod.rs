@@ -35,6 +35,8 @@ pub struct ReviewModes {
     pub ui: Option<String>,
     pub features: Option<String>,
     pub local_audio: Option<String>,
+    /// `--review-audio <dir>`: Settings → Audio with synthetic state.
+    pub audio: Option<String>,
 }
 
 impl ReviewModes {
@@ -64,11 +66,20 @@ impl ReviewModes {
                     .ok_or("--review-local-audio needs an output directory")
             })
             .transpose()?;
+        let audio_review_path = std::env::args()
+            .position(|s| s == "--review-audio")
+            .map(|i| {
+                std::env::args()
+                    .nth(i + 1)
+                    .ok_or("--review-audio needs an output directory")
+            })
+            .transpose()?;
         if [
             smoke.is_some(),
             review_path.is_some(),
             feature_review_path.is_some(),
             local_review_path.is_some(),
+            audio_review_path.is_some(),
         ]
         .into_iter()
         .filter(|v| *v)
@@ -82,6 +93,7 @@ impl ReviewModes {
             ui: review_path,
             features: feature_review_path,
             local_audio: local_review_path,
+            audio: audio_review_path,
         })
     }
 
@@ -90,5 +102,6 @@ impl ReviewModes {
             || self.ui.is_some()
             || self.features.is_some()
             || self.local_audio.is_some()
+            || self.audio.is_some()
     }
 }

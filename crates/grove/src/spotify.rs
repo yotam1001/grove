@@ -1,5 +1,6 @@
 //! Separate Web API and native librespot grants, with cancellable background work.
 use crate::{
+    audio::reconnect::{self, Backoff, RestorePoint, WakeDetector},
     auth, credentials,
     engine::Engine,
     web_api::{SavedLibrary, WebApi},
@@ -22,6 +23,8 @@ pub enum Request {
     Disconnect,
     Shutdown,
     Command(Value),
+    /// Rebuild the player with new stream settings, keeping the song and position.
+    RestartAudio,
     RefreshLibrary,
     Feature {
         id: u64,
@@ -49,6 +52,8 @@ enum Outcome {
     Feature(u64, Result<Value, String>),
     Library(WebApi, Value),
     Playback(Engine, Credentials),
+    Reconnected(Engine, Credentials, u64),
+    ReconnectFailed(u64, String),
     Playlists(Value),
     Queue(u64, Value),
     Empty,
@@ -122,6 +127,14 @@ async fn run(
     let mut busy = false;
     let mut queue_pending = false;
     let mut queue_timer = tokio::time::interval(std::time::Duration::from_secs(15));
+    let (lost_tx, mut lost_rx) = tokio::sync::mpsc::unbounded_channel::<u64>();
+    let mut reconnecting: Option<Reconnect> = None;
+    let mut attempts = 0u64;
+    // Engine generations are unique across manual starts and reconnects.
+    let mut engine_ids = 0u64;
+    let watch_every = std::time::Duration::from_secs(5);
+    let mut watchdog = tokio::time::interval(watch_every);
+    let mut wake = WakeDetector::new(std::time::SystemTime::now(), watch_every);
     loop {
         tokio::select! {
             request = requests.recv() => {
@@ -149,7 +162,7 @@ async fn run(
                     }
                     Request::SignOut => {
                         generation += 1; jobs.abort_all(); busy = false; queue_pending = false;
-                        engine = None; web = None;
+                        engine = None; web = None; reconnecting = None;
                         let library = credentials::delete(credentials::LIBRARY);
                         let playback = credentials::delete(credentials::PLAYBACK);
                         let _ = events.send(Event::Disconnected("Signed out".into()));
@@ -158,7 +171,7 @@ async fn run(
                         if let Err(error) = library.and(playback) { let _ = events.send(Event::Error(error)); }
                     }
                     Request::Disconnect => {
-                        engine = None;
+                        engine = None; reconnecting = None;
                         let _ = events.send(Event::Disconnected("Spotify playback is disconnected.".into()));
                     }
                     Request::SignInLibrary(id) => {
@@ -202,7 +215,8 @@ async fn run(
                         if premium==Some(false) { let _ = events.send(Event::Error("Local Spotify playback requires a Premium account.".into())); continue; }
                         let account = account_id.clone();
                         generation += 1; jobs.abort_all(); queue_pending = false;
-                        engine = None;
+                        engine = None; reconnecting = None;
+                        engine_ids += 1; let engine_id = engine_ids; let lost = lost_tx.clone();
                         let _ = events.send(Event::Disconnected("Connecting Spotify…".into()));
                         busy = true;
                         let _ = events.send(Event::Busy(true,"Continue in your browser to enable playback.".into()));
@@ -218,7 +232,7 @@ async fn run(
                                     let token = auth::authorize(auth::PLAYBACK_CLIENT_ID,8898,&["streaming"]).await?;
                                     Credentials::with_access_token(token.access.clone())
                                 };
-                                let (engine, credentials) = Engine::start(credential,&account,sender,gen).await?;
+                                let (engine, credentials) = Engine::start(credential,&account,sender,engine_id,lost).await?;
                                 Ok(Outcome::Playback(engine,credentials))
                             }.await;
                             (gen,true,result)
@@ -233,9 +247,18 @@ async fn run(
                             (gen,false,result)
                         });
                     }
+                    Request::RestartAudio => {
+                        if busy || reconnecting.is_some() { continue; }
+                        if let Some(local) = engine.take() {
+                            reconnecting = Some(Reconnect::begin(local, &events, "Applying audio settings…"));
+                        }
+                    }
                     Request::Command(payload) => {
                         if matches!(payload["command"].as_str(),Some("get_state"|"get_auth_state"|"get_queue")) { continue; }
-                        let Some(local) = engine.as_ref() else { let _ = events.send(Event::Error("Set up local playback first.".into())); continue; };
+                        let Some(local) = engine.as_ref() else {
+                            let message = if reconnecting.is_some() { "Reconnecting to Spotify. Try again in a moment." } else { "Set up local playback first." };
+                            let _ = events.send(Event::Error(message.into())); continue;
+                        };
                         if payload["command"] == "add_to_queue" {
                             let Some(api) = web.as_ref().cloned() else { continue; };
                             let Some(uri) = payload["uri"].as_str().and_then(|u| spotify_uri(u).ok()).filter(|u|u.starts_with("spotify:track:")) else { continue; };
@@ -278,10 +301,35 @@ async fn run(
                         }
                         if let Err(error) = credentials::save(credentials::PLAYBACK,&credential) { let _ = events.send(Event::Error(error)); }
                         use zeroize::Zeroize; credential.auth_data.zeroize();
+                        let id = local.generation;
                         engine = Some(local); busy = false;
                         let _ = events.send(Event::Busy(false,String::new()));
-                        let _ = events.send(Event::Connected(gen));
-                        let _ = events.send(Event::Payload(gen,json!({"type":"auth_state","logged_in":true,"is_active":false})));
+                        let _ = events.send(Event::Connected(id));
+                        let _ = events.send(Event::Payload(id,json!({"type":"auth_state","logged_in":true,"is_active":false})));
+                    }
+                    Ok(Outcome::Reconnected(local,mut credential,attempt)) => {
+                        let Some(pending) = reconnecting.as_mut().filter(|r| r.attempt == Some(attempt)) else { continue; };
+                        if local.has_ended() {
+                            if !pending.retry(&events) { let _ = events.send(Event::PlaybackStopped(pending.reported)); reconnecting = None; }
+                            continue;
+                        }
+                        if let Err(error) = credentials::save(credentials::PLAYBACK,&credential) { let _ = events.send(Event::Error(error)); }
+                        use zeroize::Zeroize; credential.auth_data.zeroize();
+                        let point = pending.point.clone(); reconnecting = None;
+                        let id = local.generation;
+                        let _ = events.send(Event::Connected(id));
+                        let _ = events.send(Event::Payload(id,json!({"type":"auth_state","logged_in":true,"is_active":false})));
+                        if let Err(error) = local.restore(&point) { let _ = events.send(Event::Error(error)); }
+                        engine = Some(local);
+                    }
+                    Ok(Outcome::ReconnectFailed(attempt,error)) => {
+                        let Some(pending) = reconnecting.as_mut().filter(|r| r.attempt == Some(attempt)) else { continue; };
+                        // A missing or refused approval will not fix itself.
+                        if error.is_empty() || !pending.retry(&events) {
+                            let _ = events.send(Event::PlaybackStopped(pending.reported));
+                            if !error.is_empty() { let _ = events.send(Event::Error(error)); }
+                            reconnecting = None;
+                        }
                     }
                     Ok(Outcome::Playlists(page)) => {
                         if web.is_some() { let _=events.send(Event::Library {name:account_name.clone(),playlists:page}); }
@@ -297,6 +345,35 @@ async fn run(
                         let _=events.send(Event::Error(error));
                     }
                 }
+            }
+            lost = lost_rx.recv() => {
+                let Some(lost) = lost else { continue; };
+                if engine.as_ref().is_some_and(|e| e.generation == lost) && reconnecting.is_none() {
+                    reconnecting = engine.take().map(|local| Reconnect::begin(local, &events, "Reconnecting…"));
+                }
+            }
+            _ = watchdog.tick() => {
+                let woke = wake.woke(std::time::SystemTime::now());
+                if let Some(pending) = reconnecting.as_mut().filter(|r| r.attempt.is_none()) {
+                    if woke { pending.backoff.hurry(); pending.due = tokio::time::Instant::now() + std::time::Duration::from_secs(2); }
+                } else if reconnecting.is_none() && !busy && engine.as_ref().is_some_and(|e| e.session.is_invalid() || e.has_ended()) {
+                    // Sleep, a network change or a dropped socket left a dead session.
+                    reconnecting = engine.take().map(|local| Reconnect::begin(local, &events, "Reconnecting…"));
+                }
+            }
+            _ = until(reconnecting.as_ref().filter(|r| r.attempt.is_none()).map(|r| r.due)) => {
+                let Some(pending) = reconnecting.as_mut() else { continue; };
+                attempts += 1; pending.attempt = Some(attempts);
+                engine_ids += 1;
+                let (attempt, engine_id, account, sender, lost, gen) = (attempts, engine_ids, account_id.clone(), events.clone(), lost_tx.clone(), generation);
+                jobs.spawn(async move {
+                    let result = async {
+                        let Some(credential) = credentials::load::<Credentials>(credentials::PLAYBACK).map_err(|_| String::new())? else { return Err(String::new()); };
+                        if credential.username.as_deref() != Some(account.as_str()) { return Err(String::new()); }
+                        Engine::start(credential,&account,sender,engine_id,lost).await.map_err(|e| if e.contains("Premium") || e.contains("different Spotify account") { String::new() } else { e })
+                    }.await;
+                    (gen,false,Ok(match result { Ok((engine,credential)) => Outcome::Reconnected(engine,credential,attempt), Err(error) => Outcome::ReconnectFailed(attempt,error) }))
+                });
             }
             _ = queue_timer.tick(), if engine.as_ref().is_some_and(Engine::is_active) && web.is_some() && !queue_pending => {
                 let api=web.as_ref().unwrap().clone(); let gen=generation; let engine_gen=engine.as_ref().unwrap().generation;
@@ -317,6 +394,58 @@ async fn run(
     }
     jobs.abort_all();
     drop(engine);
+}
+
+/// A lost session being brought back with the saved playback approval.
+struct Reconnect {
+    backoff: Backoff,
+    point: RestorePoint,
+    /// The generation the UI still shows, so progress reaches it.
+    reported: u64,
+    due: tokio::time::Instant,
+    /// Identifies the attempt in flight; None while waiting.
+    attempt: Option<u64>,
+}
+
+impl Reconnect {
+    fn begin(engine: Engine, events: &mpsc::Sender<Event>, label: &str) -> Self {
+        let point = engine.restore_point();
+        let reported = engine.generation;
+        drop(engine);
+        let now = std::time::Instant::now();
+        let _ = events.send(Event::Payload(
+            reported,
+            json!({"type":"reconnecting","label":label}),
+        ));
+        Self {
+            backoff: Backoff::new(now),
+            point,
+            reported,
+            due: tokio::time::Instant::now(),
+            attempt: None,
+        }
+    }
+
+    /// Schedule the next try. False once the retry budget is spent.
+    fn retry(&mut self, events: &mpsc::Sender<Event>) -> bool {
+        let Some(wait) = self.backoff.next(std::time::Instant::now()) else {
+            return false;
+        };
+        self.attempt = None;
+        self.due = tokio::time::Instant::now() + wait;
+        let _ = events.send(Event::Payload(
+            self.reported,
+            json!({"type":"reconnecting","label":reconnect::label(self.backoff.attempt() + 1, wait)}),
+        ));
+        true
+    }
+}
+
+async fn until(due: Option<tokio::time::Instant>) {
+    match due {
+        Some(due) => tokio::time::sleep_until(due).await,
+        None => std::future::pending().await,
+    }
 }
 
 #[cfg(test)]

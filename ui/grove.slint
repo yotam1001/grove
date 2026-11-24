@@ -20,6 +20,7 @@ import { GroveSystem, CrashNotice } from "system.slint";
 export { GroveTrack, GrovePlaylist, GroveJamTrack, GroveFeatureTrack, GroveLyricLine, GroveTheme, GroveMotion }
 export { GroveSystem }
 export { GroveBrowse, GroveCard, GroveShelf, GroveRow, GroveHeader }
+export { GroveAudio, GroveChoice, GroveBand, GroveSaved } from "pages/settings_audio.slint";
 
 // The window keeps every property and callback the Rust side uses; pages and the
 // player bar receive them through bindings.
@@ -124,6 +125,11 @@ export component GroveWindow inherits Window {
     in property <string> artist: "Connect Spotify to start listening";
     in property <string> context-name: "Spotify Connect";
     in property <string> status: "Not connected";
+    // Audio stream: sleep-timer countdown and a lost session being restored.
+    in property <string> sleep-remaining;
+    in property <string> reconnecting;
+    // Offline review modes scroll the page to the section they capture.
+    in property <length> review-scroll;
     in property <string> message;
     in property <float> position: 0;
     in property <float> duration: 0;
@@ -250,6 +256,8 @@ export component GroveWindow inherits Window {
             ScrollView {
                 private property <int> shown-page: root.page;
                 changed shown-page => { self.content-y = 0px; }
+                private property <length> review-offset: root.review-scroll;
+                changed review-offset => { self.content-y = -self.review-offset; }
                 horizontal-stretch: 1;
                 opacity: root.page-entering ? 0 : 1;
                 animate opacity { duration: root.page-entering ? 0ms : GroveMotion.base; easing: ease-out; }
@@ -476,6 +484,8 @@ export component GroveWindow inherits Window {
             total: root.total;
             volume: root.volume;
             status: root.status;
+            reconnecting: root.reconnecting;
+            sleep-remaining: root.sleep-remaining;
             song-action(a, b) => { root.song-action(a, b); }
             transport(a) => { root.transport(a); }
             seek(a) => { root.seek(a); }

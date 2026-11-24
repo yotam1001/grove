@@ -26,12 +26,12 @@ or second Premium account works in production.
 | Play / pause / previous / next / seek / volume | Implemented | Native controls, availability and jam-guest guards, persisted volume. Real Spotify audio remains unverified in this audit. |
 | Shuffle / repeat | Implemented | Spotify context controls plus selection Shuffle for loaded Grove rows. Partial option events preserve other options. |
 | Autoplay | Partial alternative | Refills before the rotation runs out, continuing from the artists of the playlist, album or artist being played, or the Discovery mix; skips songs heard this session, in history, queued or hidden. No stream prefetch. |
-| Loading / retry / quality | Partial | Loading, play/pause, errors and reconnect feedback. Source codec/bitrate/sample-rate and Tide-style output recovery remain open; quality is not guessed. |
+| Loading / retry / quality | Implemented; live audio check open | Settings → Audio: 96/160/320 kbps and volume levelling (automatic/per song/per album, pregain), applied by restarting the player at the same song and position. Now Playing shows the source format (codec · bitrate · 44.1 kHz) using librespot's own file preference order. A lost librespot session (network drop, sleep, invalid session) reconnects automatically with the saved approval on a capped backoff and restores song, context and position; the player shows Reconnecting… meanwhile. Also: fade between songs (Off or 2–12 s, gapless albums kept), equalizer presets plus a 5/10-band custom curve, sleep timer, and resume positions for episodes and 20-minute tracks. |
 | Light / dark | Implemented | Settings; persisted independently from window size. |
 | Normal / Compact / Mini / restore | Implemented | Settings layout and mini/restore; previous expanded size is retained. |
 | Windows media controls | Implemented; hardware check open | Shared native session, metadata/timeline and guarded callbacks; Settings can disable it. Review modes register no system session. |
 | Custom global shortcuts | Missing | Grove does not register configurable Ctrl/Alt combinations. |
-| Output-device recovery | Missing | Grove-specific bounded resume after Bluetooth/USB/HDMI output loss still needs backend work and physical testing. |
+| Output-device recovery | Implemented; hardware check open | Settings → Audio chooses System default (follows Windows) or a named output, saved across restarts; a missing saved output is labelled unavailable. Grove's own librespot sink reopens on a Windows default change, pauses instead of blocking when the output fails, and resumes once if the same song's output returns within 10 minutes. Physical Bluetooth/USB/HDMI loss and return are not yet verified. |
 | Local audio files | Implemented | Settings → Open audio file uses Tide's owned mpv backend without a Spotify login. Native play/pause, seek, volume, retry, mini and return use the same player. Spotify pause must be confirmed before switching; local files cannot enter jams. Requires the shared mpv runtime. |
 | Jams on own devices | Nearby rooms implemented | Real TCP host/guest review, ownership, host control, drift correction, stale samples and confirmed consumption. Each account streams independently; two-account audio validation remains open. |
 | Internet Jams | Missing | Current transport accepts loopback/private addresses. Tide's YouTube-specific relay cannot be presented as Spotify-compatible. |
@@ -60,6 +60,7 @@ launch consent, write preferences or register Windows media controls.
 ./target/debug/grove-music.exe --review-ui "$env:TEMP/grove-jam-parity-review"
 ./target/debug/grove-music.exe --smoke-ui "$env:TEMP/grove-parity-smoke"
 ./target/debug/grove-music.exe --review-local-audio "$env:TEMP/grove-local-audio-review"
+./target/debug/grove-music.exe --review-audio "$env:TEMP/grove-audio-review"
 ```
 
 Feature review uses actual callbacks with synthetic responses: sign-in guard,

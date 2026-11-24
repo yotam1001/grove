@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod app;
 mod artwork;
+mod audio;
 mod auth;
 mod beta;
 mod browse_cache;
@@ -68,6 +69,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             lyrics::lrclib()
         },
     );
+    let (audio, audio_timer) =
+        audio::ui::install(&ui, tx.clone(), state.clone(), features.clone(), offline);
 
     let poll = app::events::start(&ui, events, &state, &jam_tx, &tx, &features, &local);
     let media = media::install(&ui, state.clone(), offline);
@@ -92,6 +95,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .features
         .map(|path| features::review::start(&ui, features.clone(), path.into()))
         .transpose()?;
+    let audio_review = modes
+        .audio
+        .map(|p| audio::review::start(&ui, audio.clone(), state.clone(), p.into()))
+        .transpose()?;
     let local_review = modes
         .local_audio
         .map(|p| local::review(&ui, local.clone(), state.clone(), p.into()))
@@ -104,6 +111,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     drop(review);
     drop(feature_review);
     drop(local_review);
+    drop(audio_review);
+    audio_timer.stop();
+    drop(audio_timer);
+    drop(audio);
     drop(media);
     drop(lyrics);
     drop(shell);
