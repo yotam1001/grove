@@ -57,7 +57,11 @@ class InstallerTests(unittest.TestCase):
                         with zipfile.ZipFile(fixture/(name+".zip"),"w") as archive:
                             for entry in entries: archive.writestr(entry,b"fixture")
                 script=fixture/"test.ps1";script.write_text(HARNESS,encoding="utf-8-sig")
-                result=subprocess.run([shell,"-NoProfile","-File",str(script),str(ROOT/"scripts/grove-install-common.ps1"),str(fixture),scenario],capture_output=True,timeout=30)
+                # A PowerShell 7 parent (the CI step shell) exports its own module
+                # path; give the built-in 5.1 subprocess its normal OS modules (as Tide does).
+                environment=os.environ.copy()
+                environment["PSModulePath"]=str(Path(os.environ["SystemRoot"])/"System32/WindowsPowerShell/v1.0/Modules")
+                result=subprocess.run([shell,"-NoProfile","-File",str(script),str(ROOT/"scripts/grove-install-common.ps1"),str(fixture),scenario],capture_output=True,timeout=30,env=environment)
                 self.assertEqual(result.returncode,0,result.stderr.decode(errors="replace"))
                 self.assertIn(b"PASS isolated installer lifecycle",result.stdout)
     def test_bootstrap_payload_gate(self):
