@@ -141,8 +141,15 @@ fn checks(ui: &GroveWindow, features: &Rc<RefCell<Features>>) {
     ui.set_page(6);
     ui.set_search_text("".into());
     let _ = ui.window().take_snapshot();
-    click(ui, 600.0, 153.0);
-    key(ui, "x".into());
+    // Probe a few points down the page's top band for the search field, so a
+    // layout change moves the probe rather than breaking the check.
+    for y in [199.0, 153.0, 175.0, 225.0] {
+        click(ui, 600.0, y);
+        key(ui, "x".into());
+        if !ui.get_search_text().is_empty() {
+            break;
+        }
+    }
     if ui.get_search_text() == "x" {
         let before = commands.borrow().len();
         key(ui, " ".into());
