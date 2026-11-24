@@ -45,7 +45,8 @@ class InstallerTests(unittest.TestCase):
         shell=os.path.join(os.environ["SystemRoot"],"System32","WindowsPowerShell","v1.0","powershell.exe")
         for scenario in scenarios:
             with self.subTest(scenario=scenario), tempfile.TemporaryDirectory(prefix="grove-install-test-") as temp:
-                fixture=Path(temp);package=fixture/"package";lines=[]
+                # Resolve to the long path: CI runners use an 8.3 temp name (RUNNER~1).
+                fixture=Path(temp).resolve();package=fixture/"package";lines=[]
                 for name in gate.FILES:
                     path=package/name;path.parent.mkdir(parents=True,exist_ok=True)
                     data=b"public fixture, never executed";path.write_bytes(data)
