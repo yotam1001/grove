@@ -1,0 +1,110 @@
+// Shared jams (page 4): start, join, follow and the shared queue.
+import { LineEdit } from "std-widgets.slint";
+import { GroveFeatureTrack, GroveJamTrack } from "../model.slint";
+import { GroveButton, Rule } from "../components.slint";
+import { GroveTheme } from "../theme.slint";
+
+export component JamsPage inherits VerticalLayout {
+    in property <string> jam-message;
+    in property <bool> jam-connected;
+    in-out property <string> jam-name;
+    in property <bool> jam-busy;
+    in-out property <bool> network-options;
+    in-out property <string> jam-address;
+    in-out property <string> jam-join-invite;
+    in property <bool> jam-host;
+    in property <string> jam-sync-status;
+    in-out property <bool> jam-following;
+    in property <bool> jam-matching;
+    in property <bool> jam-match-confirmed;
+    in property <string> jam-match-title;
+    in property <[GroveFeatureTrack]> jam-matches;
+    in-out property <string> jam-match-link;
+    in property <string> jam-invite;
+    in property <string> jam-members;
+    in property <bool> jam-tide-host;
+    in-out property <string> jam-track-link;
+    in-out property <string> jam-track-title;
+    in property <bool> authenticated;
+    in property <[GroveJamTrack]> jam-tracks;
+    callback jam-create;
+    callback jam-join;
+    callback jam-leave;
+    callback jam-pair(int);
+    callback jam-add;
+    callback jam-next;
+    callback jam-remove(string);
+    spacing: 18px; vertical-stretch: 0;
+    if root.jam-message != "" : Text { text: root.jam-message; color: GroveTheme.warning; font-size: 13px; wrap: word-wrap; }
+    Text { text: "Experimental · Invite Tide or Grove friends on the same network. Everyone plays through their own service. Spotify listeners need Premium."; color: GroveTheme.muted; font-size: 13px; wrap: word-wrap; }
+    if !root.jam-connected : VerticalLayout {
+        spacing: 14px;
+        Text { text: "Your display name"; color: GroveTheme.text; font-size: 14px; }
+        LineEdit { text <=> root.jam-name; accessible-label: "Jam display name"; height: 40px; }
+        GroveButton { text: "Start a jam"; enabled: !root.jam-busy; accent: true; width: 160px; height: 44px; clicked => { root.jam-create(); } }
+        GroveButton { text: root.network-options ? "Hide network options" : "Network options"; flat: true; width: 200px; clicked => { root.network-options = !root.network-options; } }
+        if root.jam-address == "127.0.0.1" : Text { text: "This jam stays on this computer. Choose your Wi-Fi address in Network options to invite another device."; color: GroveTheme.muted; font-size: 12px; wrap: word-wrap; }
+        if root.network-options : LineEdit { text <=> root.jam-address; placeholder-text: "Wi-Fi address"; accessible-label: "Jam host IP address"; height: 42px; }
+        Rule {}
+        Text { text: "Or paste a Grove invitation"; color: GroveTheme.text; font-size: 14px; }
+        HorizontalLayout {
+            spacing: 12px;
+            LineEdit { text <=> root.jam-join-invite; placeholder-text: "Paste an invite"; accessible-label: "Jam invitation"; height: 42px; }
+            GroveButton { text: root.jam-busy ? "Connecting…" : "Join jam"; enabled: !root.jam-busy; width: 140px; height: 42px; clicked => { root.jam-join(); } }
+        }
+    }
+    if root.jam-connected : VerticalLayout {
+        spacing: 14px;
+        HorizontalLayout {
+            spacing: 12px;
+            Text { text: root.jam-host ? "You’re hosting" : "Listening with the host"; color: GroveTheme.text; font-size: 23px; vertical-alignment: center; }
+            GroveButton { text: root.jam-host ? "End jam" : "Leave jam"; width: 110px; clicked => { root.jam-leave(); } }
+        }
+        Text { text: root.jam-sync-status; color: GroveTheme.accent; font-size: 14px; wrap: word-wrap; }
+        if !root.jam-host : GroveButton { text: root.jam-following ? "Stop following" : "Follow host"; width: 160px; clicked => { root.jam-following = !root.jam-following; } }
+        if root.jam-matching && !root.jam-host && root.jam-following : VerticalLayout {
+            spacing: 10px;
+            Text { text: root.jam-match-confirmed ? "YouTube song matched · experimental" : "Choose the same song on Spotify"; color: GroveTheme.text; font-size: 19px; }
+            Text { text: root.jam-match-title; color: GroveTheme.secondary; wrap: word-wrap; }
+            Text { text: "Choose the same recording. Videos, live versions and intros can shift the timing."; color: GroveTheme.muted; wrap: word-wrap; }
+            for song[index] in root.jam-matches : HorizontalLayout {
+                Text { text: song.title + " · " + song.artist + " · " + song.duration; color: GroveTheme.text; overflow: elide; vertical-alignment: center; }
+                GroveButton { text: "Use song"; width: 100px; clicked => { root.jam-pair(index); } }
+            }
+            HorizontalLayout {
+                LineEdit { text <=> root.jam-match-link; placeholder-text: "Or paste the matching Spotify song link"; accessible-label: "Matching Spotify song"; accepted => { root.jam-pair(-1); } }
+                GroveButton { text: "Use link"; width: 100px; clicked => { root.jam-pair(-1); } }
+            }
+        }
+        if root.jam-host : Text { text: "Share this invite with a friend"; color: GroveTheme.muted; font-size: 12px; wrap: word-wrap; }
+        if root.jam-host : LineEdit { text: root.jam-invite; read-only: true; accessible-label: "Share this jam invitation"; height: 42px; }
+        Text { text: root.jam-members; color: GroveTheme.muted; font-size: 13px; wrap: word-wrap; }
+        if root.jam-tide-host : Text { text: "Choose the next song in Tide on the host's device."; color: GroveTheme.muted; font-size: 12px; wrap: word-wrap; }
+        if !root.jam-tide-host : VerticalLayout {
+        spacing: 14px;
+        Rule {}
+        Text { text: "Shared queue"; color: GroveTheme.text; font-size: 23px; }
+        LineEdit { text <=> root.jam-track-link; placeholder-text: "Paste a Spotify track link"; accessible-label: "Shared track link"; height: 40px; }
+        HorizontalLayout {
+            spacing: 12px;
+            if root.network-options : LineEdit { text <=> root.jam-track-title; placeholder-text: "Song name (optional)"; accessible-label: "Shared track name"; height: 40px; }
+            GroveButton { text: "Add track"; width: 125px; height: 40px; clicked => { root.jam-add(); } }
+        }
+        if root.jam-host : GroveButton { text: "Play next shared track"; width: 220px; accent: true; enabled: root.authenticated && root.jam-tracks.length > 0; clicked => { root.jam-next(); } }
+        if root.jam-tracks.length == 0 : Text { text: "Everyone can add a track. The host chooses what plays next."; color: GroveTheme.muted; font-size: 13px; wrap: word-wrap; }
+        for track in root.jam-tracks : Rectangle {
+            height: 62px; background: transparent;
+            HorizontalLayout {
+                spacing: 12px;
+                VerticalLayout {
+                    alignment: center; spacing: 4px;
+                    Text { text: track.title; color: GroveTheme.text; font-size: 14px; overflow: elide; }
+                    Text { text: track.subtitle; color: GroveTheme.muted; font-size: 12px; overflow: elide; }
+                }
+                GroveButton { text: "Remove"; width: 90px; enabled: track.removable; clicked => { root.jam-remove(track.id); } }
+            }
+        }
+        }
+    }
+    Text { text: "Nearby devices only."; color: GroveTheme.muted; font-size: 12px; wrap: word-wrap; }
+}

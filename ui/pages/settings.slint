@@ -1,0 +1,55 @@
+// Settings (page 8): appearance, playback, history and support.
+import { AboutSlint } from "std-widgets.slint";
+import { GroveButton, GroveSwitch, Rule } from "../components.slint";
+import { GroveTheme } from "../theme.slint";
+
+export component SettingsPage inherits VerticalLayout {
+    in property <bool> light-mode;
+    in property <bool> compact-mode;
+    in property <bool> jam-connected;
+    in property <bool> local-active;
+    in property <bool> media-keys;
+    in property <bool> autoplay;
+    in property <bool> local-history;
+    in property <string> app-version;
+    in-out property <int> page;
+    in-out property <bool> show-about;
+    callback appearance(string);
+    callback open-local;
+    callback stop-local;
+    callback save-support;
+    spacing: 18px; vertical-stretch: 0;
+    Text { text: "Make Grove yours"; color: GroveTheme.text; font-size: 23px; font-weight: 600; }
+    HorizontalLayout {
+        spacing: 12px; alignment: start;
+        GroveButton { text: root.light-mode ? "Light theme" : "Dark theme"; width: 140px; clicked => { root.appearance("theme"); } }
+        GroveButton { text: root.compact-mode ? "Compact layout" : "Full layout"; width: 150px; clicked => { root.appearance("compact"); } }
+    }
+    Rule {}
+    Text { text: "Playback"; color: GroveTheme.text; font-size: 20px; font-weight: 600; }
+    HorizontalLayout {
+        alignment: start; spacing: 10px;
+        GroveButton { text: "Open audio file"; width: 150px; enabled: !root.jam-connected; clicked => { root.open-local(); } }
+        if root.local-active : GroveButton { text: "Return to Spotify"; width: 160px; clicked => { root.stop-local(); } }
+    }
+    GroveSwitch { text: "Use media keys"; checked: root.media-keys; toggled => { root.appearance("media"); } }
+    Text { text: "Control Grove while other apps are open."; color: GroveTheme.muted; wrap: word-wrap; }
+    GroveSwitch { text: "Keep music playing"; checked: root.autoplay; toggled => { root.appearance("autoplay"); } }
+    Text { text: "Continue with songs from Home when your queue ends."; color: GroveTheme.muted; wrap: word-wrap; }
+    Rule {}
+    Text { text: "Listening preferences"; color: GroveTheme.text; font-size: 20px; font-weight: 600; }
+    GroveSwitch { text: "Remember songs this session"; checked: root.local-history; toggled => { root.appearance("history"); } }
+    Text { text: "Keep a history of the Spotify songs you listen to. It clears when you close Grove."; color: GroveTheme.muted; wrap: word-wrap; }
+    HorizontalLayout {
+        spacing: 10px; alignment: start;
+        GroveButton { text: "View history"; width: 110px; clicked => { root.page = 9; } }
+        GroveButton { text: "Clear history"; width: 110px; clicked => { root.appearance("clear-history"); } }
+        GroveButton { text: "Show hidden songs"; width: 164px; clicked => { root.appearance("reset-hidden"); } }
+    }
+    Rule {}
+    Text { text: root.app-version; color: GroveTheme.muted; font-size: 12px; }
+    Text { text: "Shared jams are experimental. For help, save support info and send it with a description of the problem."; color: GroveTheme.muted; wrap: word-wrap; }
+    GroveButton { text: "Save support info"; width: 160px; clicked => { root.save-support(); } }
+    GroveButton { text: "About"; width: 100px; clicked => { root.show-about = !root.show-about; } }
+    if root.show-about : AboutSlint { height: 112px; horizontal-stretch: 0; }
+}

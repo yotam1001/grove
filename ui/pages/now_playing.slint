@@ -1,0 +1,38 @@
+// Now playing (page 0): the current track and the link opener.
+import { GroveButton, Mark } from "../components.slint";
+import { GroveTheme } from "../theme.slint";
+
+export component NowPlayingPage inherits VerticalLayout {
+    in property <string> context-name;
+    in property <bool> narrow;
+    in property <string> track-title;
+    in property <string> artist;
+    in-out property <bool> show-link;
+    spacing: 26px; vertical-stretch: 0;
+    VerticalLayout {
+        spacing: 6px; vertical-stretch: 0;
+        
+        if root.context-name != "" : Text { text: root.context-name; color: GroveTheme.muted; font-size: 13px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+    }
+    HorizontalLayout {
+        spacing: 26px; height: root.narrow ? 120px : 180px;
+        Rectangle {
+            width: root.narrow ? 120px : 180px; height: self.width;
+            background: GroveTheme.rail; border-radius: 12px;
+            border-width: 1px; border-color: GroveTheme.border;
+            for fraction in [0.84, 0.69, 0.54, 0.39] : Rectangle {
+                width: parent.width * fraction; height: self.width;
+                x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+                border-radius: self.width / 2;
+                background: transparent; border-width: 1px; border-color: GroveTheme.line;
+            }
+            Mark { kind: "note"; width: 68px; height: 68px; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; }
+        }
+        VerticalLayout {
+            alignment: center; spacing: 10px;
+            Text { text: root.track-title; color: GroveTheme.text; font-size: 23px; font-weight: 600; wrap: word-wrap; }
+            Text { text: root.artist; color: GroveTheme.secondary; font-size: 16px; wrap: word-wrap; }
+        }
+    }
+    GroveButton { text: root.show-link ? "Close link" : "Open a Spotify link"; flat: true; width: 190px; clicked => { root.show-link = !root.show-link; } }
+}
