@@ -1,0 +1,54 @@
+{
+  "upstream": "yotam1001/tide-music",
+  "commit": "4bc2ba3ddfa8baa68fb775cbafc0a1df6735cba8",
+  "crates": [
+    "core",
+    "windows"
+  ],
+  "replacements": [
+    {
+      "path": "crates/windows/src/taskbar.rs",
+      "old": "\"Tide — click to open\"",
+      "new": "\"Grove — click to open\""
+    },
+    {
+      "path": "crates/windows/src/taskbar.rs",
+      "old": "\"Open Tide\"",
+      "new": "\"Open Grove\""
+    },
+    {
+      "path": "crates/windows/src/taskbar.rs",
+      "old": "\"Quit Tide\"",
+      "new": "\"Quit Grove\""
+    },
+    {
+      "path": "crates/windows/src/taskbar.rs",
+      "old": "        if self.tray_allowed && !self.tray_added.get() {\n",
+      "new": "        // Grove: the tray icon is opt-in, shown only while closing to the tray is on.\n        if self.tray_allowed && self.close_to_tray.get() && !self.tray_added.get() {\n"
+    },
+    {
+      "path": "crates/windows/src/taskbar.rs",
+      "old": "        if let Some(state) = &self.state {\n            state.close_to_tray.set(enabled);\n        }\n",
+      "new": "        if let Some(state) = &self.state {\n            // Grove: add or remove the opt-in tray icon with the setting.\n            if state.close_to_tray.replace(enabled) != enabled {\n                if enabled && state.tray_allowed && !state.tray_added.get() {\n                    state.add_tray(self.hwnd);\n                } else if !enabled {\n                    state.remove_tray(self.hwnd);\n                }\n            }\n        }\n"
+    },
+    {
+      "path": "crates/windows/src/taskbar.rs",
+      "old": "        if state.tray_allowed {\n            state.add_tray(hwnd);\n        }\n",
+      "new": "        if state.tray_allowed && state.close_to_tray.get() {\n            state.add_tray(hwnd);\n        }\n"
+    }
+  ],
+  "files": {
+    "crates/core/Cargo.toml": "d9408eb2dcdb6695ce4a2d8b26c071c5a5c81f14e6cbfda2e7d139e931c9842c",
+    "crates/core/src/lib.rs": "ad303e9aed3b2e2fadd76b85ec35932700ab689141e3d13cb5ae8e4298d322bc",
+    "crates/windows/Cargo.toml": "ed09fe5a1d257721945e24c76360cacecc41a2d5dcfaaad5b6366c62fe643e0a",
+    "crates/windows/README.md": "eae0a1d6ee7298f68597c928580901e82f15664288c64b74f9e3dc46300d804b",
+    "crates/windows/src/audio_output.rs": "9f7ba3d3cceadb8987e00b75f3da0772dba3b01a9869c417e406f223cda79c91",
+    "crates/windows/src/discord_pipe.rs": "f9993a074393eca48f300f76010d6d6053a6e5d759bcf53caccf9ce9e50edc80",
+    "crates/windows/src/lib.rs": "f62194db660e3e9aaa15e78e2d73c4dae2a635d8fb518e43da5f6b752d62e292",
+    "crates/windows/src/login.rs": "588f594d4f38f5c85d1aedb3ffa772971e8ebbab482bf288cfd8b094309b2c67",
+    "crates/windows/src/mini.rs": "e73e1535e35d0a764e9773f0a16cc41ed456d951336eae393fc387924a771675",
+    "crates/windows/src/native.rs": "9710153f65d604389cacdf223081047c2a047f2103bc6d8b6ced7146f25cba8b",
+    "crates/windows/src/shortcuts.rs": "1c04f62e3b38a201c8b60cc6cb78ac5ef323a2a9710df4961a1ef57fd13112d8",
+    "crates/windows/src/taskbar.rs": "30dcbc867c2c5ed48e5de87637f6660ffdec388d4da0a836aca1ad4105b2d33d"
+  }
+}

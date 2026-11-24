@@ -2,11 +2,34 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 pub const MAX_QUEUE_TRACKS: usize = 2000;
+/// Saved playlists, albums, artists and history items kept per Library list.
+pub const MAX_LIBRARY_ITEMS: usize = 1000;
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Artist {
+    pub id: String,
+    pub name: String,
+}
+impl Artist {
+    pub fn is_valid(&self) -> bool {
+        self.id.len() == 24
+            && self.id.starts_with("UC")
+            && self
+                .id
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
+            && !self.name.trim().is_empty()
+            && self.name.chars().count() <= 300
+            && !self.name.chars().any(char::is_control)
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Track {
     pub title: String,
     pub artist: String,
+    #[serde(default)]
+    pub artists: Vec<Artist>,
     pub album: String,
     pub source: String,
     #[serde(default)]
@@ -28,30 +51,72 @@ pub enum PlaybackCommand {
     Shutdown,
 }
 
+/// Why YouTube refused a song, classified from the extractor's error line.
+/// Only this fixed category is kept; the raw line can carry signed URLs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceFailure {
+    /// YouTube asked for sign-in or a bot check.
+    SignInRequired,
+    /// Removed, private, region-blocked or otherwise unavailable.
+    Unavailable,
+    /// YouTube answered but offered no playable audio stream.
+    NoStream,
+    /// The extractor failed for another reason.
+    Other,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AudioDevice {
+    pub name: String,
+    pub description: String,
+}
+
 #[derive(Clone, Debug)]
 pub struct PlaybackSnapshot {
+    pub audio_devices: Vec<AudioDevice>,
+    pub audio_settings_error: bool,
+    pub normalization_active: bool,
     pub generation: u64,
     pub position: f64,
     pub duration: f64,
     pub paused: bool,
     pub loading: bool,
+    pub buffering: bool,
+    pub retry_attempt: u8,
+    pub audio_codec: Option<String>,
+    pub audio_bitrate_bps: Option<u64>,
+    pub audio_sample_rate: Option<u32>,
     pub ended: bool,
     pub volume: f64,
     pub error: Option<String>,
+    /// Classified audio-output failure; never an authentication/network error.
+    pub output_unavailable: bool,
+    /// Last extractor failure for the current track; survives retries.
+    pub source_failure: Option<SourceFailure>,
     pub title: Option<String>,
 }
 
 impl Default for PlaybackSnapshot {
     fn default() -> Self {
         Self {
+            audio_devices: Vec::new(),
+            audio_settings_error: false,
+            normalization_active: false,
             generation: 0,
             position: 0.0,
             duration: 0.0,
             paused: true,
             loading: false,
+            buffering: false,
+            retry_attempt: 0,
+            audio_codec: None,
+            audio_bitrate_bps: None,
+            audio_sample_rate: None,
             ended: false,
             volume: 100.0,
             error: None,
+            output_unavailable: false,
+            source_failure: None,
             title: None,
         }
     }
@@ -187,18 +252,50 @@ impl Queue {
     /// Append recommendations once per source without changing the selection.
     /// Examine at most one queue's worth of inputs, even from an unbounded iterator.
     pub fn append_deduplicated(&mut self, tracks: impl IntoIterator<Item = Track>) -> usize {
-        let mut sources: HashSet<String> = self.tracks.iter().map(|t| t.source.clone()).collect();
-        let mut appended = 0;
-        for track in tracks.into_iter().take(MAX_QUEUE_TRACKS) {
-            if self.tracks.len() >= MAX_QUEUE_TRACKS {
-                break;
-            }
-            if !track.source.trim().is_empty() && sources.insert(track.source.clone()) {
-                self.tracks.push(track);
-                appended += 1;
-            }
+        self.extend_retained(0..self.tracks.len(), tracks)
+    }
+
+    /// Keep the current song and up to 20 played rows. Replace upcoming rows
+    /// for an explicit radio request only after finding a usable recommendation.
+    pub fn apply_radio(&mut self, tracks: Vec<Track>, replace_upcoming: bool) -> usize {
+        let current = self.current.filter(|&i| i < self.tracks.len());
+        let start = current.map_or(0, |i| i.saturating_sub(20));
+        let end = if replace_upcoming {
+            current.map_or(0, |i| i + 1)
+        } else {
+            self.tracks.len()
+        };
+        let added = self.extend_retained(start..end, tracks);
+        if added > 0 {
+            self.current = current.map(|i| i - start);
         }
-        appended
+        added
+    }
+
+    fn extend_retained(
+        &mut self,
+        retained: std::ops::Range<usize>,
+        tracks: impl IntoIterator<Item = Track>,
+    ) -> usize {
+        let capacity = MAX_QUEUE_TRACKS.saturating_sub(retained.len());
+        let mut sources: HashSet<_> = self.tracks[retained.clone()]
+            .iter()
+            .map(|t| t.source.clone())
+            .collect();
+        let mut accepted = tracks
+            .into_iter()
+            .take(MAX_QUEUE_TRACKS)
+            .filter(|track| !track.source.trim().is_empty() && sources.insert(track.source.clone()))
+            .take(capacity)
+            .peekable();
+        if accepted.peek().is_none() {
+            return 0;
+        }
+        self.tracks.truncate(retained.end);
+        self.tracks.drain(..retained.start);
+        let before = self.tracks.len();
+        self.tracks.extend(accepted);
+        self.tracks.len() - before
     }
 
     /// Keep a bounded recent history while retaining the current and all upcoming
@@ -332,6 +429,7 @@ mod tests {
     }
     fn track(title: &str) -> Track {
         Track {
+            artists: Vec::new(),
             title: title.into(),
             artist: String::new(),
             album: String::new(),
@@ -583,6 +681,67 @@ mod tests {
         };
         assert_eq!(q.append_deduplicated(std::iter::repeat(track("a"))), 0);
     }
+
+    #[test]
+    fn rejected_radio_batch_preserves_history_selection_and_upcoming_rows() {
+        for replace in [false, true] {
+            let mut queue = Queue {
+                tracks: (0..25).map(|i| track(&i.to_string())).collect(),
+                current: Some(22),
+            };
+            let original = queue.clone();
+            assert_eq!(
+                queue.apply_radio(vec![track("21"), track("22"), track("")], replace),
+                0
+            );
+            assert_eq!(queue.tracks, original.tracks);
+            assert_eq!(queue.current, original.current);
+        }
+    }
+
+    #[test]
+    fn radio_replacement_keeps_the_playing_song_and_deduplicates_against_retained_history() {
+        let mut queue = Queue {
+            tracks: (0..25).map(|i| track(&i.to_string())).collect(),
+            current: Some(22),
+        };
+        assert_eq!(
+            queue.apply_radio(
+                vec![track("21"), track("23"), track("new"), track("new")],
+                true
+            ),
+            2
+        );
+        assert_eq!(queue.current, Some(20));
+        assert_eq!(queue.tracks[0].source, "2");
+        assert_eq!(queue.tracks[20..], [track("22"), track("23"), track("new")]);
+    }
+
+    #[test]
+    fn radio_clears_a_stale_selection_only_after_accepting_a_recommendation() {
+        for replace in [false, true] {
+            let mut queue = Queue {
+                tracks: vec![track("old")],
+                current: Some(1),
+            };
+            assert_eq!(queue.apply_radio(vec![track("")], replace), 0);
+            assert_eq!(queue.current, Some(1));
+            assert_eq!(queue.tracks, [track("old")]);
+
+            assert_eq!(
+                queue.apply_radio(vec![track("new"), track("other")], replace),
+                2
+            );
+            assert_eq!(queue.current, None);
+            let expected = if replace {
+                vec![track("new"), track("other")]
+            } else {
+                vec![track("old"), track("new"), track("other")]
+            };
+            assert_eq!(queue.tracks, expected);
+        }
+    }
+
     #[test]
     fn shuffle_all_is_reproducible_and_can_change_first_track() {
         let mut q = Queue {
