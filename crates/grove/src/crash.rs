@@ -39,10 +39,7 @@ pub fn remember(value: &str) {
 }
 
 pub fn path() -> Option<PathBuf> {
-    std::env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .map(|root| root.join("GroveMusic").join("crash.log"))
+    crate::preferences::data_dir().map(|dir| dir.join("crash.log"))
 }
 
 /// Chain a hook that records each panic after the default output. Review

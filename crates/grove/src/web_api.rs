@@ -5,7 +5,10 @@
 //! playback, which runs through the native engine. Endpoints that Spotify closed
 //! to development-mode apps in February 2026 (`/tracks?ids=`, artist top tracks)
 //! are tried once and then replaced by the per-item routes for the session.
-use crate::auth::{self, Tokens};
+use crate::{
+    auth::{self, Tokens},
+    browse_cache::Hit,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -98,6 +101,20 @@ pub struct WebApi {
     /// Endpoints this app cannot use, learned from 403/404 replies this session.
     unavailable: HashSet<&'static str>,
     pub grant_dirty: bool,
+    /// The `/me` reply this grant was verified with, until the worker caches it.
+    /// `None` when a cached profile stood in for it.
+    pub verified_profile: Option<Value>,
+}
+
+/// The first playlists page for the startup or a Refresh.
+pub struct LibraryPage {
+    /// Marked `cached` (and `stale`) when it came from the last launch, with a
+    /// `cooldown` (the throttled value) when Spotify answered 429.
+    pub page: Value,
+    /// A stale page is shown at once; the worker then refreshes it.
+    pub refresh: bool,
+    /// A page Spotify just returned: worth caching for the next launch.
+    pub store: bool,
 }
 
 /// The budget a path belongs to. Cooldowns apply per budget.
@@ -137,6 +154,7 @@ impl WebApi {
             cooldowns: HashMap::new(),
             unavailable: HashSet::new(),
             grant_dirty: false,
+            verified_profile: None,
         }
     }
 
@@ -887,19 +905,49 @@ impl WebApi {
             .collect())
     }
 
+    /// Checks whose grant this is. `cached` is the last launch's `/me` reply:
+    /// fresh, it stands in for the request; stale, it is used when `/me` answers
+    /// 429, so a startup cooldown never holds up the library or playback.
     pub async fn verify(
         client_id: String,
         tokens: Tokens,
         expected: Option<&str>,
+        cached: Option<Hit>,
         waiting: impl Fn(u64),
     ) -> Result<Self, String> {
-        let mut api =
-            Self::with_transport(client_id, tokens, Transport::Http(auth::http_client()?));
+        Self::with_transport(client_id, tokens, Transport::Http(auth::http_client()?))
+            .identify(expected, cached, waiting)
+            .await
+    }
+
+    async fn identify(
+        mut self,
+        expected: Option<&str>,
+        cached: Option<Hit>,
+        waiting: impl Fn(u64),
+    ) -> Result<Self, String> {
+        // Only a profile cached for the account this approval belongs to counts.
+        let cached = cached.filter(|hit| {
+            let (Hit::Fresh(profile) | Hit::Stale(profile)) = hit;
+            expected.is_some() && profile["id"].as_str() == expected
+        });
+        if let Some(Hit::Fresh(profile)) = &cached {
+            self.adopt(profile, expected)?;
+            return Ok(self);
+        }
         let mut attempts = 0;
         let mut waited = Duration::ZERO;
         let profile = loop {
-            match api.get("/me").await {
+            match self.get("/me").await {
                 Ok(profile) => break profile,
+                // The profile budget keeps its cooldown; nothing waits for it.
+                Err(ApiError::Throttled { .. }) if cached.is_some() => {
+                    let Some(Hit::Stale(profile)) = &cached else {
+                        unreachable!("fresh profiles return above");
+                    };
+                    self.adopt(profile, expected)?;
+                    return Ok(self);
+                }
                 Err(ApiError::Throttled {
                     seconds,
                     quota: false,
@@ -908,13 +956,19 @@ impl WebApi {
                     let delay = Duration::from_secs(seconds);
                     waiting(seconds.saturating_add(1));
                     tokio::time::sleep(delay).await;
-                    api.cooldowns.clear();
+                    self.cooldowns.clear();
                     attempts += 1;
                     waited += delay;
                 }
                 Err(error) => return Err(error.to_string()),
             }
         };
+        self.adopt(&profile, expected)?;
+        self.verified_profile = Some(profile);
+        Ok(self)
+    }
+
+    fn adopt(&mut self, profile: &Value, expected: Option<&str>) -> Result<(), String> {
         let id = profile["id"]
             .as_str()
             .filter(|v| !v.is_empty())
@@ -924,12 +978,12 @@ impl WebApi {
                 "Saved approval belongs to another Spotify account. Sign out and try again.".into(),
             );
         }
-        api.account_id = id.to_owned();
-        api.name = profile["display_name"].as_str().unwrap_or(id).to_owned();
+        self.account_id = id.to_owned();
+        self.name = profile["display_name"].as_str().unwrap_or(id).to_owned();
         // Development-mode profiles omit product. Defer unknown eligibility to
         // the streaming session instead of incorrectly rejecting every account.
-        api.premium = profile["product"].as_str().map(|p| p == "premium");
-        Ok(api)
+        self.premium = profile["product"].as_str().map(|p| p == "premium");
+        Ok(())
     }
 
     pub fn saved(&self) -> SavedLibrary {
@@ -1062,13 +1116,63 @@ impl WebApi {
         }
     }
 
-    pub async fn playlists(&mut self) -> Result<Value, String> {
-        let mut page = self
-            .get("/me/playlists?limit=50")
-            .await
-            .map_err(|e| e.to_string())?;
-        page["account"] = json!(self.account_id);
-        Ok(page)
+    /// The first playlists page, through the playlists budget. Unless `force`d, a
+    /// fresh cached page needs no request and a stale one is shown while the
+    /// worker refreshes it. A 429 or failure falls back to the cached page.
+    pub async fn library(&mut self, cached: Option<Hit>, force: bool) -> LibraryPage {
+        let account = json!(self.account_id);
+        let from_cache = |hit: &Option<Hit>| {
+            hit.as_ref().map(|hit| {
+                let (Hit::Fresh(page) | Hit::Stale(page)) = hit;
+                let mut page = page.clone();
+                page["cached"] = json!(true);
+                page["stale"] = json!(matches!(hit, Hit::Stale(_)));
+                page
+            })
+        };
+        if !force {
+            if let Some(mut page) = from_cache(&cached) {
+                page["account"] = account;
+                let refresh = matches!(cached, Some(Hit::Stale(_)));
+                return LibraryPage {
+                    page,
+                    refresh,
+                    store: false,
+                };
+            }
+        }
+        let fallback =
+            || from_cache(&cached).unwrap_or_else(|| json!({"items":[],"load_failed":true}));
+        let mut page = match self.get("/me/playlists?limit=50").await {
+            Ok(mut page) => {
+                page["account"] = account;
+                return LibraryPage {
+                    page,
+                    refresh: false,
+                    store: true,
+                };
+            }
+            Err(ApiError::Throttled {
+                budget,
+                seconds,
+                quota,
+            }) => {
+                let mut page = fallback();
+                page["cooldown"] = throttled_value(budget, seconds, quota);
+                page
+            }
+            Err(error) => {
+                let mut page = fallback();
+                page["error"] = json!(error.to_string());
+                page
+            }
+        };
+        page["account"] = account;
+        LibraryPage {
+            page,
+            refresh: false,
+            store: false,
+        }
     }
 
     pub async fn queue(&mut self) -> Result<Value, String> {

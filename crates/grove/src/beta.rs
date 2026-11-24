@@ -51,7 +51,7 @@ pub fn command_line() -> Result<bool, Box<dyn std::error::Error>> {
             let result=runtime.block_on(async {
                 let saved=credentials::load::<crate::web_api::SavedLibrary>(credentials::LIBRARY)?.ok_or("Connect Spotify in Grove first.")?;
                 let tokens=crate::auth::refresh(&saved.client_id,&saved.refresh_token).await?;
-                let mut api=crate::web_api::WebApi::verify(saved.client_id.clone(),tokens,Some(&saved.account_id),|_|{}).await?;
+                let mut api=crate::web_api::WebApi::verify(saved.client_id.clone(),tokens,Some(&saved.account_id),None,|_|{}).await?;
                 let mut report=json!({"version":env!("CARGO_PKG_VERSION"),"profile_verified":true,"playlists_read":false,"liked_songs_read":false,"search_read":false,"premium_eligibility_known":api.premium.is_some(),"premium_eligible":api.premium});
                 for (key,action) in [("playlists_read",crate::library::Action::Playlists{offset:0}),("liked_songs_read",crate::library::Action::Collection{uri:"liked".into(),offset:0}),("search_read",crate::library::Action::Search{query:"Daft Punk Get Lucky".into(),offset:0})] {
                     match api.feature(action).await { Ok(_)=>report[key]=json!(true),Err(error)=>{report[format!("{key}_error")]=json!(error);} }

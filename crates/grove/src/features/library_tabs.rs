@@ -106,6 +106,38 @@ impl Features {
         self.render(ui);
     }
 
+    /// The note under the Playlists tab for a page from the Spotify worker. A
+    /// cooldown shows the banner with Retry while the Playlists tab is open, and
+    /// a page from the last launch says so instead of passing as live.
+    pub fn playlists_note(&mut self, ui: &GroveWindow, playlists: &Value) -> &'static str {
+        let shown = !playlists["items"].as_array().is_none_or(|i| i.is_empty());
+        let on_tab = ui.get_page() == LIBRARY && ui.global::<GroveBrowse>().get_library_tab() == 0;
+        if playlists["cooldown"].is_object() {
+            if on_tab {
+                self.show_cooldown(ui, &playlists["cooldown"], Some(Retry::Tab(0)));
+            }
+            return if shown {
+                "Spotify is busy, so these are your playlists from last time. Refresh when the cooldown ends."
+            } else {
+                "Spotify is busy. Your playlists load when the cooldown ends."
+            };
+        }
+        if on_tab && playlists["cached"] != true {
+            self.clear_cooldown(ui);
+        }
+        if playlists["load_failed"] == true {
+            "Playlist loading failed. Use Refresh to retry."
+        } else if playlists["error"].is_string() && playlists["cached"] == true {
+            "Spotify could not be reached, so these are your playlists from last time."
+        } else if playlists["stale"] == true {
+            "Showing your playlists from last time while Grove refreshes them."
+        } else if !playlists["next"].is_null() {
+            "Showing the first 50 playlists."
+        } else {
+            "Your saved playlists"
+        }
+    }
+
     pub(super) fn add_playlists(&mut self, data: &Value) {
         let account = data["account"].as_str().unwrap_or_default();
         for entry in data["items"]

@@ -49,12 +49,29 @@ impl Default for Preferences {
         }
     }
 }
+/// Grove's per-user data folder: `%APPDATA%\GroveMusic` on Windows,
+/// `~/Library/Application Support/GroveMusic` on macOS and
+/// `$XDG_CONFIG_HOME/GroveMusic` (default `~/.config`) elsewhere.
+pub fn data_dir() -> Option<PathBuf> {
+    data_dir_from(|name| std::env::var_os(name))
+}
+
+fn data_dir_from(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> Option<PathBuf> {
+    let absolute = |name: &str| var(name).map(PathBuf::from).filter(|p| p.is_absolute());
+    let root = if cfg!(windows) {
+        absolute("APPDATA")
+    } else if cfg!(target_os = "macos") {
+        absolute("HOME").map(|home| home.join("Library").join("Application Support"))
+    } else {
+        absolute("XDG_CONFIG_HOME").or_else(|| absolute("HOME").map(|home| home.join(".config")))
+    };
+    root.map(|root| root.join("GroveMusic"))
+}
+
 fn path() -> Result<PathBuf, String> {
-    let root = std::env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .ok_or("Windows application-data directory is unavailable.")?;
-    Ok(root.join("GroveMusic").join("preferences.json"))
+    Ok(data_dir()
+        .ok_or("The application-data directory is unavailable.")?
+        .join("preferences.json"))
 }
 impl Preferences {
     pub fn load() -> Result<Self, String> {
@@ -115,6 +132,45 @@ impl Preferences {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn the_data_folder_follows_each_platform_and_ignores_relative_paths() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(k, _)| *k == name)
+                    .map(|(_, v)| std::ffi::OsString::from(v))
+            }
+        };
+        #[cfg(windows)]
+        {
+            assert_eq!(
+                data_dir_from(env(&[("APPDATA", r"C:\Users\a\AppData\Roaming")])),
+                Some(PathBuf::from(r"C:\Users\a\AppData\Roaming\GroveMusic"))
+            );
+            assert_eq!(data_dir_from(env(&[("APPDATA", "relative")])), None);
+        }
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            data_dir_from(env(&[("HOME", "/Users/a")])),
+            Some(PathBuf::from(
+                "/Users/a/Library/Application Support/GroveMusic"
+            ))
+        );
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            assert_eq!(
+                data_dir_from(env(&[("HOME", "/home/a")])),
+                Some(PathBuf::from("/home/a/.config/GroveMusic"))
+            );
+            assert_eq!(
+                data_dir_from(env(&[("HOME", "/home/a"), ("XDG_CONFIG_HOME", "/cfg")])),
+                Some(PathBuf::from("/cfg/GroveMusic"))
+            );
+            assert_eq!(data_dir_from(env(&[("XDG_CONFIG_HOME", "rel")])), None);
+        }
+        assert_eq!(data_dir_from(env(&[])), None);
+    }
     #[test]
     fn missing_preferences_have_safe_defaults_and_no_account_secrets() {
         let prefs: Preferences = serde_json::from_str("{}").unwrap();
